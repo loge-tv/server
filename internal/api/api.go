@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"log/slog"
+	"math"
 	"net/http"
 	"strings"
 	"sync"
@@ -55,7 +56,12 @@ type itemJSON struct {
 }
 
 func toJSON(key string, r *store.Result) itemJSON {
-	out := itemJSON{RatingKey: key, Segments: r.Segments}
+	segs := make([]store.Segment, len(r.Segments))
+	for i, s := range r.Segments {
+		s.Start, s.End = math.Round(s.Start*10)/10, math.Round(s.End*10)/10
+		segs[i] = s
+	}
+	out := itemJSON{RatingKey: key, Segments: segs}
 	if !r.Analyzed {
 		f := false
 		out.Analyzed = &f

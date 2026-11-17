@@ -35,7 +35,7 @@ func setup(t *testing.T) (*httptest.Server, *fakeAuth) {
 		}
 	}
 	if err := st.SetResult(ctx, "1", []store.Segment{
-		{Type: "credits", Start: 2909.1, End: 2987.9, Source: "fingerprint"},
+		{Type: "credits", Start: 2909.1, End: 2987.94, Source: "fingerprint"},
 		{Type: "intro", Start: 17.5, End: 61.7, Source: "fingerprint"},
 	}); err != nil {
 		t.Fatal(err)
