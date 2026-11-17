@@ -19,7 +19,7 @@ const (
 	// Hop is the distance between sub-fingerprints in samples (32 ms).
 	Hop = 256
 	// Bands is the number of frequency bands; it yields Bands-1 = 32 bits.
-	Bands = 33
+	Bands   = 33
 	minFreq = 300.0
 	maxFreq = 3000.0
 	// silenceRMS: frames quieter than this (≈ -60 dBFS) get value 0,
