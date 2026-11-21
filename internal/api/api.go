@@ -51,7 +51,29 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /v1/preferences/{key}", s.auth(http.HandlerFunc(s.getPref)))
 	mux.Handle("PUT /v1/preferences/{key}", s.auth(http.HandlerFunc(s.putPref)))
 	mux.Handle("GET /v1/preferences", s.auth(http.HandlerFunc(s.listPrefs)))
-	return mux
+	return cors(mux)
+}
+
+// cors lets the SkipTV web client call /v1 from a browser. Auth is the
+// X-Plex-Token header (no cookies), so any origin is fine; preflights carry
+// no token and are answered without auth.
+func cors(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/v1/") && r.URL.Path != "/v1" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		h := w.Header()
+		h.Set("Access-Control-Allow-Origin", "*")
+		h.Set("Access-Control-Allow-Methods", "GET, PUT, OPTIONS")
+		h.Set("Access-Control-Allow-Headers", "X-Plex-Token, Content-Type, Accept")
+		h.Set("Access-Control-Max-Age", "86400")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // maxPref limits a stored preferences object.

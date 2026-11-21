@@ -67,6 +67,10 @@ uses for Plex. The detector checks it against the Plex server
   - `PUT /v1/preferences/{key}` with a JSON object (≤ 16 KiB) → stores it and
     answers like `GET`; `{}` or `null` delete the record; anything else → 400;
   - `GET /v1/preferences` → `{"items":[…]}`, all records.
+- CORS for the web client on every `/v1/*`: `Access-Control-Allow-Origin: *`
+  (auth is a header, no cookies), methods `GET, PUT, OPTIONS`, headers
+  `X-Plex-Token, Content-Type, Accept`, max age a day; a preflight `OPTIONS`
+  gets 204 without a token check.
 - `GET /healthz` → `ok`.
 
 ## Configuration (env)

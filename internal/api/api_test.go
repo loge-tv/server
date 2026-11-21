@@ -111,6 +111,49 @@ func TestAuth(t *testing.T) {
 	}
 }
 
+func TestCORS(t *testing.T) {
+	srv, fa := setup(t)
+	calls := fa.calls
+	for _, p := range []string{"/v1/segments/1", "/v1/preferences/10", "/v1/preferences"} {
+		req, _ := http.NewRequest(http.MethodOptions, srv.URL+p, nil)
+		req.Header.Set("Origin", "http://example.test")
+		req.Header.Set("Access-Control-Request-Method", "PUT")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		h := resp.Header
+		if resp.StatusCode != 204 || h.Get("Access-Control-Allow-Origin") != "*" ||
+			h.Get("Access-Control-Allow-Methods") != "GET, PUT, OPTIONS" ||
+			h.Get("Access-Control-Allow-Headers") != "X-Plex-Token, Content-Type, Accept" ||
+			h.Get("Access-Control-Max-Age") != "86400" {
+			t.Errorf("preflight %s: %d %v", p, resp.StatusCode, h)
+		}
+	}
+	if fa.calls != calls {
+		t.Error("preflight checked a token")
+	}
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/v1/segments/1", nil)
+	req.Header.Set("X-Plex-Token", "bad")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 401 || resp.Header.Get("Access-Control-Allow-Origin") != "*" {
+		t.Errorf("GET with bad token: %d, CORS %q", resp.StatusCode, resp.Header.Get("Access-Control-Allow-Origin"))
+	}
+	resp, err = http.Get(srv.URL + "/healthz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.Header.Get("Access-Control-Allow-Origin") != "" {
+		t.Error("CORS on /healthz")
+	}
+}
+
 func put(t *testing.T, url, body string) (int, string) {
 	t.Helper()
 	req, _ := http.NewRequest(http.MethodPut, url, strings.NewReader(body))
