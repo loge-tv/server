@@ -59,7 +59,8 @@ type Config struct {
 //	4 — a dark ending of the film is not credits on black.
 //	5 — luma probes fixed (were scaled by the content's bit depth).
 //	6 — black level is absolute (≤ 3 of 255), not relative to the lowest.
-const Version = 6
+//	7 — ...or the steady most common level (black kept at 15 by encodes).
+const Version = 7
 
 func DefaultConfig() Config {
 	return Config{
@@ -548,20 +549,31 @@ func (a *Analyzer) isScene(ctx context.Context, it store.Item, s float64) (bool,
 	return median(sp) >= a.Cfg.SceneSpread, nil
 }
 
-// OnBlackLevel returns the share of keyframes whose 10th luma percentile is
-// at most level: nearly all of them for credits on black (0–2 of 255), few
-// for a dark scene (4–9).
+// OnBlackLevel returns the share of keyframes whose 10th luma percentile
+// (8 bit gray) is the background of credits on black: at most level (0–2).
+// Some encodes keep black at 15 and never reach level; there it is the
+// most common value of the window, which on black does not move from frame
+// to frame. A dark scene wanders (4–9) and scores about half.
 func OnBlackLevel(l []media.Luma, level float64) float64 {
 	if len(l) == 0 {
 		return 0
 	}
-	n := 0
+	count := map[int]int{}
+	mode, black := -1, 0
 	for _, x := range l {
 		if x.Low <= level {
-			n++
+			black++
+		}
+		v := int(math.Round(x.Low * 255))
+		count[v]++
+		if mode < 0 || count[v] > count[mode] || count[v] == count[mode] && v < mode {
+			mode = v
 		}
 	}
-	return float64(n) / float64(len(l))
+	if black > 0 {
+		return float64(black) / float64(len(l))
+	}
+	return float64(count[mode]) / float64(len(l))
 }
 
 func median(v []float64) float64 {

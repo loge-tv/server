@@ -31,8 +31,9 @@ SkipTV clients ask it for segments by Plex `ratingKey` and skip them.
   textured — the median 10th–90th luma percentile spread of 30 s of keyframes
   is ≥ 8 % (credits on a colour background give ~3 %). The start is checked
   the same way: on black, the 10th luma percentile (8 bit gray) of ≥ 60 % of
-  30 s of keyframes is ≤ 3 (credits give 0–2); a dark ending of the film sits
-  at 4–9 and is skipped for the next candidate.
+  30 s of keyframes is ≤ 3 (credits give 0–2) — or, in encodes that keep
+  black at ~15 and never go lower, the same value frame after frame; a dark
+  ending of the film wanders at 4–9 and is skipped for the next candidate.
 - Failed or empty decodes are not cached as results; an item is retried up to
   3 times (on later passes).
 - Plex first reports a rough duration (whole minutes) for new files. When it
