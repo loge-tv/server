@@ -29,7 +29,10 @@ SkipTV clients ask it for segments by Plex `ratingKey` and skip them.
   where a scene after them starts (mid/post-credits): ≥ 10 s of keyframes
   under 50 % dark, outside the last 15 s (studio logos), whose picture is
   textured — the median 10th–90th luma percentile spread of 30 s of keyframes
-  is ≥ 8 % (credits on a colour background give ~3 %).
+  is ≥ 8 % (credits on a colour background give ~3 %). The start is checked
+  the same way: on black, the 10th luma percentile of ≥ 60 % of 30 s of
+  keyframes sits at the black level (the lowest one, ±0.6 %); a dark ending
+  of the film wanders above it and is skipped for the next candidate.
 - Failed or empty decodes are not cached as results; an item is retried up to
   3 times (on later passes).
 - Plex first reports a rough duration (whole minutes) for new files. When it

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -23,26 +24,29 @@ import (
 )
 
 type Config struct {
-	IntroPercent   float64 // share of the episode searched for the intro
-	IntroLimit     float64 // ...but at most this many seconds
-	IntroMin       float64
-	IntroMax       float64
-	CreditsWindow  float64 // seconds at the end of an episode searched for credits
-	CreditsMin     float64
-	CreditsMax     float64
-	MovieCredits   float64 // seconds at the end of a movie scanned for black frames
-	MaxAttempts    int
-	BlackPercent   int     // keyframe counts as black at this share of dark pixels
-	BlackShare     float64 // share of black keyframes needed after credits start
-	BlackSpan      float64 // ...over this many seconds
-	ScenePercent   int     // keyframe darker than this share is picture, not credits
-	SceneMin       float64 // picture this long after credits start ends them
-	SceneProbe     float64 // seconds decoded to tell a scene from coloured credits
-	SceneSpread    float64 // median luma spread (0–1) of a scene
-	EndSnap        float64 // credits ending this close to the end run to the end
-	MaxBitDiff     int
-	MaxGap         float64
-	MinFingerprint float64 // a fingerprint with less non-silent audio is an error
+	IntroPercent    float64 // share of the episode searched for the intro
+	IntroLimit      float64 // ...but at most this many seconds
+	IntroMin        float64
+	IntroMax        float64
+	CreditsWindow   float64 // seconds at the end of an episode searched for credits
+	CreditsMin      float64
+	CreditsMax      float64
+	MovieCredits    float64 // seconds at the end of a movie scanned for black frames
+	MaxAttempts     int
+	BlackPercent    int     // keyframe counts as black at this share of dark pixels
+	BlackShare      float64 // share of black keyframes needed after credits start
+	BlackSpan       float64 // ...over this many seconds
+	ScenePercent    int     // keyframe darker than this share is picture, not credits
+	SceneMin        float64 // picture this long after credits start ends them
+	SceneProbe      float64 // seconds decoded to tell a scene from coloured credits
+	SceneSpread     float64 // median luma spread (0–1) of a scene
+	BlackLevelTol   float64 // 10th luma percentile this close to the lowest is black level
+	BlackLevelShare float64 // share of keyframes at black level for credits on black
+	MaxCreditChecks int     // credits start candidates probed per item
+	EndSnap         float64 // credits ending this close to the end run to the end
+	MaxBitDiff      int
+	MaxGap          float64
+	MinFingerprint  float64 // a fingerprint with less non-silent audio is an error
 }
 
 // Version of the matching rules. Bump it when they change: results of an
@@ -52,7 +56,8 @@ type Config struct {
 //	2 — black frame credits may be shorter than BlackSpan at the very end;
 //	    caches taken with a too short Plex duration are redone.
 //	3 — black frame credits end where a scene after them starts.
-const Version = 3
+//	4 — a dark ending of the film is not credits on black.
+const Version = 4
 
 func DefaultConfig() Config {
 	return Config{
@@ -62,6 +67,7 @@ func DefaultConfig() Config {
 		MaxAttempts:  3,
 		BlackPercent: 85, BlackShare: 0.75, BlackSpan: 60,
 		ScenePercent: 50, SceneMin: 10, SceneProbe: 30, SceneSpread: 0.08,
+		BlackLevelTol: 0.006, BlackLevelShare: 0.6, MaxCreditChecks: 30,
 		EndSnap:    15,
 		MaxBitDiff: 6, MaxGap: 3.5,
 		MinFingerprint: 10,
@@ -450,14 +456,41 @@ func (a *Analyzer) blackCredits(ctx context.Context, it store.Item, start float6
 			return store.Segment{}, false, err
 		}
 	}
-	t, ok := BlackStart(frames, a.Cfg.BlackPercent, a.Cfg.BlackShare, a.Cfg.BlackSpan)
 	// Plex sometimes under-reports the duration (Kraven .m2ts: 1094 s of
 	// 7616): the scan itself shows how long the file is.
 	end := it.Duration
 	if len(frames) > 0 {
 		end = max(end, frames[len(frames)-1].T)
 	}
-	if !ok || end-t < a.Cfg.CreditsMin {
+	// A dark ending of the film is not credits on black: on black the
+	// lowest luma stays at the black level (checked by ffmpeg).
+	t, ok, rejected, checks := 0.0, false, math.Inf(-1), 0
+	for _, c := range BlackStarts(frames, a.Cfg.BlackPercent, a.Cfg.BlackShare, a.Cfg.BlackSpan) {
+		if end-c < a.Cfg.CreditsMin || checks >= a.Cfg.MaxCreditChecks {
+			break
+		}
+		if c < rejected+a.Cfg.SceneProbe {
+			continue
+		}
+		checks++
+		l, err := a.luma(ctx, it, c)
+		if err != nil {
+			if ctx.Err() != nil {
+				return store.Segment{}, false, ctx.Err()
+			}
+			a.Log.Warn("credits check", "key", it.RatingKey, "at", c, "err", err)
+			t, ok = c, true // as before the check
+			break
+		}
+		if share := OnBlackLevel(l, a.Cfg.BlackLevelTol); share >= a.Cfg.BlackLevelShare {
+			t, ok = c, true
+			break
+		} else {
+			a.Log.Info("dark picture, not credits", "key", it.RatingKey, "at", c, "share", share)
+		}
+		rejected = c
+	}
+	if !ok {
 		return store.Segment{}, false, nil
 	}
 	// A scene after the credits (post-credits, mid-credits) is not skipped.
@@ -483,28 +516,54 @@ func (a *Analyzer) blackCredits(ctx context.Context, it store.Item, start float6
 	return store.Segment{Type: "credits", Start: float64(int(t*10)) / 10, End: end, Source: "blackframe"}, true, nil
 }
 
-// isScene checks (or reuses a check of) SceneProbe seconds of keyframes
-// from s: a scene has textured picture, credits a flat background.
+// luma probes (or reuses a probe of) SceneProbe seconds of keyframes from s.
+func (a *Analyzer) luma(ctx context.Context, it store.Item, s float64) ([]media.Luma, error) {
+	l, have, err := a.Store.LumaCheck(ctx, it.RatingKey, s)
+	if err != nil || have {
+		return l, err
+	}
+	if err := a.Guard(ctx); err != nil {
+		return nil, err
+	}
+	l, err = a.FF.LumaStats(ctx, it.Path, s, a.Cfg.SceneProbe)
+	if err != nil {
+		return nil, err
+	}
+	return l, a.Store.PutLumaCheck(ctx, it.RatingKey, s, l)
+}
+
+// isScene: a scene has textured picture, credits a flat background.
 func (a *Analyzer) isScene(ctx context.Context, it store.Item, s float64) (bool, error) {
-	spread, have, err := a.Store.SceneCheck(ctx, it.RatingKey, s)
+	l, err := a.luma(ctx, it, s)
 	if err != nil {
 		return false, err
 	}
-	if !have {
-		if err := a.Guard(ctx); err != nil {
-			return false, err
-		}
-		sp, err := a.FF.LumaSpread(ctx, it.Path, s, a.Cfg.SceneProbe)
-		if err != nil {
-			return false, err
-		}
-		spread = median(sp)
-		if err := a.Store.PutSceneCheck(ctx, it.RatingKey, s, spread); err != nil {
-			return false, err
+	sp := make([]float64, len(l))
+	for i, x := range l {
+		sp[i] = x.Spread
+	}
+	a.Log.Debug("scene check", "key", it.RatingKey, "at", s, "spread", median(sp))
+	return median(sp) >= a.Cfg.SceneSpread, nil
+}
+
+// OnBlackLevel returns the share of keyframes whose 10th luma percentile is
+// within tol of the lowest one: all of them for credits on black (the
+// background is the black level), few for a dark scene.
+func OnBlackLevel(l []media.Luma, tol float64) float64 {
+	if len(l) == 0 {
+		return 0
+	}
+	lo := l[0].Low
+	for _, x := range l {
+		lo = min(lo, x.Low)
+	}
+	n := 0
+	for _, x := range l {
+		if x.Low-lo <= tol {
+			n++
 		}
 	}
-	a.Log.Debug("scene check", "key", it.RatingKey, "at", s, "spread", spread)
-	return spread >= a.Cfg.SceneSpread, nil
+	return float64(n) / float64(len(l))
 }
 
 func median(v []float64) float64 {
@@ -554,7 +613,16 @@ func stale(cached, want float64) bool {
 // than span to the end of the scan the share is taken over the frames left:
 // short sitcom credits (~25 s on black, then a bright vanity card) count.
 func BlackStart(frames []media.Frame, pct int, share, span float64) (float64, bool) {
+	if s := BlackStarts(frames, pct, share, span); len(s) > 0 {
+		return s[0], true
+	}
+	return 0, false
+}
+
+// BlackStarts returns every keyframe time BlackStart would accept, in order.
+func BlackStarts(frames []media.Frame, pct int, share, span float64) []float64 {
 	sort.Slice(frames, func(i, j int) bool { return frames[i].T < frames[j].T })
+	var out []float64
 	for i, f := range frames {
 		if f.PBlack < pct {
 			continue
@@ -570,10 +638,10 @@ func BlackStart(frames []media.Frame, pct int, share, span float64) (float64, bo
 			}
 		}
 		if total >= 3 && float64(black) >= share*float64(total) {
-			return f.T, true
+			out = append(out, f.T)
 		}
 	}
-	return 0, false
+	return out
 }
 
 func (a *Analyzer) movie(ctx context.Context, it store.Item) error {

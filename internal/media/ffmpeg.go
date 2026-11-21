@@ -136,11 +136,15 @@ func (f *FFmpeg) BlackFrames(ctx context.Context, path string, start, dur float6
 
 var statRe = regexp.MustCompile(`signalstats\.Y(LOW|HIGH|BITDEPTH)=([0-9.]+)`)
 
-// LumaSpread decodes keyframes in [start, start+dur) and returns, for each,
-// the spread between the 10th and 90th luma percentiles of the middle half
-// of the picture (letterbox bars cut off), as a share of the full range.
-// Flat backgrounds (credits on a colour) give a few percent, scenes 15+.
-func (f *FFmpeg) LumaSpread(ctx context.Context, path string, start, dur float64) ([]float64, error) {
+// Luma of one keyframe, middle half of the picture (letterbox bars cut
+// off), as shares of the full range: Low is the 10th percentile, Spread the
+// distance to the 90th.
+type Luma struct{ Low, Spread float64 }
+
+// LumaStats decodes keyframes in [start, start+dur) and returns their luma.
+// Flat backgrounds (credits on a colour) have a Spread of a few percent,
+// scenes 15+; credits on black keep Low exactly at the black level.
+func (f *FFmpeg) LumaStats(ctx context.Context, path string, start, dur float64) ([]Luma, error) {
 	ctx, cancel := context.WithTimeout(ctx, f.Timeout)
 	defer cancel()
 	cmd := f.command(ctx,
@@ -158,7 +162,7 @@ func (f *FFmpeg) LumaSpread(ctx context.Context, path string, start, dur float64
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	var out []float64
+	var out []Luma
 	var tail []string
 	var low, high float64
 	sc := bufio.NewScanner(stderr)
@@ -179,7 +183,8 @@ func (f *FFmpeg) LumaSpread(ctx context.Context, path string, start, dur float64
 		case "HIGH":
 			high = v
 		case "BITDEPTH": // printed after LOW and HIGH of the same frame
-			out = append(out, (high-low)/(float64(int(1)<<int(v))-1))
+			full := float64(int(1)<<int(v)) - 1
+			out = append(out, Luma{Low: low / full, Spread: (high - low) / full})
 		}
 	}
 	werr := cmd.Wait()

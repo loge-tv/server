@@ -58,13 +58,15 @@ CREATE TABLE IF NOT EXISTS segments (
 	source     TEXT NOT NULL,           -- fingerprint | blackframe
 	PRIMARY KEY (rating_key, type)
 );
--- Median luma spread of a would-be scene after black frame credits.
-CREATE TABLE IF NOT EXISTS scene_checks (
+-- Luma of keyframes probed at the start of black frame credits or of a
+-- would-be scene after them (JSON []media.Luma).
+CREATE TABLE IF NOT EXISTS luma_checks (
 	rating_key TEXT NOT NULL,
 	start      REAL NOT NULL,
-	spread     REAL NOT NULL,
+	frames     TEXT NOT NULL,
 	PRIMARY KEY (rating_key, start)
 );
+DROP TABLE IF EXISTS scene_checks;
 -- Client settings per show or movie (ratingKey), opaque JSON object.
 -- Show keys are not in items, so library sync never touches this table.
 CREATE TABLE IF NOT EXISTS preferences (
@@ -183,7 +185,7 @@ func (s *Store) UpsertItem(ctx context.Context, it Item) error {
 	case err != nil:
 	case path != it.Path || size != it.Size:
 		for _, q := range []string{`DELETE FROM fingerprints WHERE rating_key=?`, `DELETE FROM black_scans WHERE rating_key=?`,
-			`DELETE FROM scene_checks WHERE rating_key=?`, `DELETE FROM segments WHERE rating_key=?`} {
+			`DELETE FROM luma_checks WHERE rating_key=?`, `DELETE FROM segments WHERE rating_key=?`} {
 			if _, err = tx.ExecContext(ctx, q, it.RatingKey); err != nil {
 				return err
 			}
@@ -217,7 +219,7 @@ func (s *Store) SetAudio(ctx context.Context, key, spec string) error {
 func (s *Store) DeleteItems(ctx context.Context, keys []string) error {
 	for _, k := range keys {
 		for _, q := range []string{`DELETE FROM items WHERE rating_key=?`, `DELETE FROM fingerprints WHERE rating_key=?`,
-			`DELETE FROM black_scans WHERE rating_key=?`, `DELETE FROM scene_checks WHERE rating_key=?`,
+			`DELETE FROM black_scans WHERE rating_key=?`, `DELETE FROM luma_checks WHERE rating_key=?`,
 			`DELETE FROM segments WHERE rating_key=?`} {
 			if _, err := s.db.ExecContext(ctx, q, k); err != nil {
 				return err
@@ -281,18 +283,27 @@ func (s *Store) BlackScan(ctx context.Context, key string) ([]media.Frame, float
 	return frames, start, err == nil, err
 }
 
-// SceneCheck returns the cached luma spread of a scene candidate.
-func (s *Store) SceneCheck(ctx context.Context, key string, start float64) (float64, bool, error) {
-	var v float64
-	err := s.db.QueryRowContext(ctx, `SELECT spread FROM scene_checks WHERE rating_key=? AND start=?`, key, start).Scan(&v)
+// LumaCheck returns cached luma of keyframes probed from start.
+func (s *Store) LumaCheck(ctx context.Context, key string, start float64) ([]media.Luma, bool, error) {
+	var raw string
+	err := s.db.QueryRowContext(ctx, `SELECT frames FROM luma_checks WHERE rating_key=? AND start=?`, key, start).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
-		return 0, false, nil
+		return nil, false, nil
 	}
+	if err != nil {
+		return nil, false, err
+	}
+	var v []media.Luma
+	err = json.Unmarshal([]byte(raw), &v)
 	return v, err == nil, err
 }
 
-func (s *Store) PutSceneCheck(ctx context.Context, key string, start, spread float64) error {
-	_, err := s.db.ExecContext(ctx, `INSERT OR REPLACE INTO scene_checks (rating_key, start, spread) VALUES (?,?,?)`, key, start, spread)
+func (s *Store) PutLumaCheck(ctx context.Context, key string, start float64, frames []media.Luma) error {
+	b, err := json.Marshal(frames)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `INSERT OR REPLACE INTO luma_checks (rating_key, start, frames) VALUES (?,?,?)`, key, start, string(b))
 	return err
 }
 
