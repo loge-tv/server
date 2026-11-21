@@ -60,13 +60,14 @@ CREATE TABLE IF NOT EXISTS segments (
 );
 -- Luma of keyframes probed at the start of black frame credits or of a
 -- would-be scene after them (JSON []media.Luma).
-CREATE TABLE IF NOT EXISTS luma_checks (
+CREATE TABLE IF NOT EXISTS luma_probes (
 	rating_key TEXT NOT NULL,
 	start      REAL NOT NULL,
 	frames     TEXT NOT NULL,
 	PRIMARY KEY (rating_key, start)
 );
 DROP TABLE IF EXISTS scene_checks;
+DROP TABLE IF EXISTS luma_checks; -- 0.1.5, normalised by the content's bit depth
 -- Client settings per show or movie (ratingKey), opaque JSON object.
 -- Show keys are not in items, so library sync never touches this table.
 CREATE TABLE IF NOT EXISTS preferences (
@@ -185,7 +186,7 @@ func (s *Store) UpsertItem(ctx context.Context, it Item) error {
 	case err != nil:
 	case path != it.Path || size != it.Size:
 		for _, q := range []string{`DELETE FROM fingerprints WHERE rating_key=?`, `DELETE FROM black_scans WHERE rating_key=?`,
-			`DELETE FROM luma_checks WHERE rating_key=?`, `DELETE FROM segments WHERE rating_key=?`} {
+			`DELETE FROM luma_probes WHERE rating_key=?`, `DELETE FROM segments WHERE rating_key=?`} {
 			if _, err = tx.ExecContext(ctx, q, it.RatingKey); err != nil {
 				return err
 			}
@@ -219,7 +220,7 @@ func (s *Store) SetAudio(ctx context.Context, key, spec string) error {
 func (s *Store) DeleteItems(ctx context.Context, keys []string) error {
 	for _, k := range keys {
 		for _, q := range []string{`DELETE FROM items WHERE rating_key=?`, `DELETE FROM fingerprints WHERE rating_key=?`,
-			`DELETE FROM black_scans WHERE rating_key=?`, `DELETE FROM luma_checks WHERE rating_key=?`,
+			`DELETE FROM black_scans WHERE rating_key=?`, `DELETE FROM luma_probes WHERE rating_key=?`,
 			`DELETE FROM segments WHERE rating_key=?`} {
 			if _, err := s.db.ExecContext(ctx, q, k); err != nil {
 				return err
@@ -286,7 +287,7 @@ func (s *Store) BlackScan(ctx context.Context, key string) ([]media.Frame, float
 // LumaCheck returns cached luma of keyframes probed from start.
 func (s *Store) LumaCheck(ctx context.Context, key string, start float64) ([]media.Luma, bool, error) {
 	var raw string
-	err := s.db.QueryRowContext(ctx, `SELECT frames FROM luma_checks WHERE rating_key=? AND start=?`, key, start).Scan(&raw)
+	err := s.db.QueryRowContext(ctx, `SELECT frames FROM luma_probes WHERE rating_key=? AND start=?`, key, start).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, false, nil
 	}
@@ -303,7 +304,7 @@ func (s *Store) PutLumaCheck(ctx context.Context, key string, start float64, fra
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `INSERT OR REPLACE INTO luma_checks (rating_key, start, frames) VALUES (?,?,?)`, key, start, string(b))
+	_, err = s.db.ExecContext(ctx, `INSERT OR REPLACE INTO luma_probes (rating_key, start, frames) VALUES (?,?,?)`, key, start, string(b))
 	return err
 }
 

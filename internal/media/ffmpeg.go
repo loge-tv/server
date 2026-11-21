@@ -134,7 +134,9 @@ func (f *FFmpeg) BlackFrames(ctx context.Context, path string, start, dur float6
 	return frames, nil
 }
 
-var statRe = regexp.MustCompile(`signalstats\.Y(LOW|HIGH|BITDEPTH)=([0-9.]+)`)
+// YBITDEPTH is the depth the frame's content needs (1 on a black frame),
+// not the format's, so frames are converted to 8 bit gray first.
+var statRe = regexp.MustCompile(`signalstats\.Y(LOW|HIGH)=([0-9.]+)`)
 
 // Luma of one keyframe, middle half of the picture (letterbox bars cut
 // off), as shares of the full range: Low is the 10th percentile, Spread the
@@ -152,7 +154,7 @@ func (f *FFmpeg) LumaStats(ctx context.Context, path string, start, dur float64)
 		"-ss", ftoa(start), "-t", ftoa(dur),
 		"-i", path,
 		"-map", "0:v:0", "-an", "-sn", "-dn",
-		"-vf", "scale=320:-2,crop=iw:ih*0.5,signalstats,metadata=print",
+		"-vf", "scale=320:-2,crop=iw:ih*0.5,format=gray,signalstats,metadata=print",
 		"-loglevel", "info",
 		"-f", "null", "-")
 	stderr, err := cmd.StderrPipe()
@@ -180,11 +182,9 @@ func (f *FFmpeg) LumaStats(ctx context.Context, path string, start, dur float64)
 		switch m[1] {
 		case "LOW":
 			low = v
-		case "HIGH":
+		case "HIGH": // printed after LOW of the same frame
 			high = v
-		case "BITDEPTH": // printed after LOW and HIGH of the same frame
-			full := float64(int(1)<<int(v)) - 1
-			out = append(out, Luma{Low: low / full, Spread: (high - low) / full})
+			out = append(out, Luma{Low: low / 255, Spread: (high - low) / 255})
 		}
 	}
 	werr := cmd.Wait()

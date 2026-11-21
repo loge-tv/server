@@ -109,26 +109,26 @@ func TestSceneSpread(t *testing.T) {
 	}
 }
 
-// Measured 10th luma percentiles (10 bit unless noted): the dark ending of
-// "It Listens" before its credits vs. credits on black.
+// Measured 10th luma percentiles (8 bit gray): the dark ending of "It
+// Listens" before its credits vs. credits on black.
 func TestOnBlackLevel(t *testing.T) {
 	cfg := DefaultConfig()
-	lows := func(full float64, v ...float64) []media.Luma {
+	lows := func(v ...float64) []media.Luma {
 		out := make([]media.Luma, len(v))
 		for i, x := range v {
-			out[i] = media.Luma{Low: x / full}
+			out[i] = media.Luma{Low: x / 255}
 		}
 		return out
 	}
-	dark := lows(1023, 86, 88, 88, 87, 84, 81, 282, 88, 78, 80, 95, 83, 97, 76, 84)
+	dark := lows(7, 7, 7, 7, 6, 5, 64, 7, 4, 5, 9, 6, 9, 4, 6)
 	if s := OnBlackLevel(dark, cfg.BlackLevelTol); s >= cfg.BlackLevelShare {
 		t.Errorf("dark ending taken for credits: share %v", s)
 	}
 	for name, l := range map[string][]media.Luma{
-		"It Listens credits":   lows(1023, 72, 72, 72, 72, 72, 72, 72, 72, 72, 72, 72, 72, 72, 72, 72),
-		"Thunderbolts credits": lows(1023, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64),
-		"Paradise, 8 bit":      lows(255, 16, 16, 16, 16, 16, 16),
-		"credits after a fade": lows(1023, 120, 90, 70, 64, 64, 64, 64, 64, 64, 64, 64, 64),
+		"It Listens credits":     lows(2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2),
+		"Thunderbolts credits":   lows(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+		"Trassa, after a fade":   lows(10, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+		"Regular Show, end card": lows(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 2, 0),
 	} {
 		if s := OnBlackLevel(l, cfg.BlackLevelTol); s < cfg.BlackLevelShare {
 			t.Errorf("%s not taken for credits: share %v", name, s)

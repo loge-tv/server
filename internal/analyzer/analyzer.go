@@ -57,7 +57,8 @@ type Config struct {
 //	    caches taken with a too short Plex duration are redone.
 //	3 — black frame credits end where a scene after them starts.
 //	4 — a dark ending of the film is not credits on black.
-const Version = 4
+//	5 — luma probes fixed (were scaled by the content's bit depth).
+const Version = 5
 
 func DefaultConfig() Config {
 	return Config{
