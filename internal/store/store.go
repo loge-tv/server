@@ -58,6 +58,13 @@ CREATE TABLE IF NOT EXISTS segments (
 	source     TEXT NOT NULL,           -- fingerprint | blackframe
 	PRIMARY KEY (rating_key, type)
 );
+-- Client settings per show or movie (ratingKey), opaque JSON object.
+-- Show keys are not in items, so library sync never touches this table.
+CREATE TABLE IF NOT EXISTS preferences (
+	key        TEXT PRIMARY KEY,
+	data       TEXT NOT NULL,
+	updated_at INTEGER NOT NULL
+);
 `
 
 func Open(path string) (*Store, error) {
@@ -371,4 +378,52 @@ func (s *Store) Stats(ctx context.Context) (Stats, error) {
 		&st.Movies, &st.MoviesAnalyzed, &st.MoviesCredits, &st.Episodes, &st.EpisodesAnalyzed,
 		&st.EpisodesIntro, &st.EpisodesCredits, &st.CreditsByBlack, &st.Failed)
 	return st, err
+}
+
+// Preference is an opaque client JSON object stored under a ratingKey.
+type Preference struct {
+	Key       string
+	Data      string
+	UpdatedAt time.Time
+}
+
+func (s *Store) Preference(ctx context.Context, key string) (Preference, bool, error) {
+	p := Preference{Key: key}
+	var ts int64
+	err := s.db.QueryRowContext(ctx, `SELECT data, updated_at FROM preferences WHERE key=?`, key).Scan(&p.Data, &ts)
+	if errors.Is(err, sql.ErrNoRows) {
+		return p, false, nil
+	}
+	p.UpdatedAt = time.Unix(ts, 0).UTC()
+	return p, err == nil, err
+}
+
+func (s *Store) Preferences(ctx context.Context) ([]Preference, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT key, data, updated_at FROM preferences ORDER BY key`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Preference{}
+	for rows.Next() {
+		var p Preference
+		var ts int64
+		if err := rows.Scan(&p.Key, &p.Data, &ts); err != nil {
+			return nil, err
+		}
+		p.UpdatedAt = time.Unix(ts, 0).UTC()
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// PutPreference stores data (a JSON object) under key, or deletes the
+// record when data is "".
+func (s *Store) PutPreference(ctx context.Context, key, data string, now time.Time) error {
+	if data == "" {
+		_, err := s.db.ExecContext(ctx, `DELETE FROM preferences WHERE key=?`, key)
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT OR REPLACE INTO preferences (key, data, updated_at) VALUES (?,?,?)`, key, data, now.Unix())
+	return err
 }

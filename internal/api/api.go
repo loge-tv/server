@@ -2,9 +2,11 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"math"
 	"net/http"
@@ -46,7 +48,79 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /v1/segments/{ratingKey}", s.auth(http.HandlerFunc(s.one)))
 	mux.Handle("GET /v1/segments", s.auth(http.HandlerFunc(s.batch)))
 	mux.Handle("GET /v1/stats", s.auth(http.HandlerFunc(s.stats)))
+	mux.Handle("GET /v1/preferences/{key}", s.auth(http.HandlerFunc(s.getPref)))
+	mux.Handle("PUT /v1/preferences/{key}", s.auth(http.HandlerFunc(s.putPref)))
+	mux.Handle("GET /v1/preferences", s.auth(http.HandlerFunc(s.listPrefs)))
 	return mux
+}
+
+// maxPref limits a stored preferences object.
+const maxPref = 16 << 10
+
+type prefJSON struct {
+	Key         string          `json:"key"`
+	Preferences json.RawMessage `json:"preferences"`
+	UpdatedAt   *time.Time      `json:"updatedAt,omitempty"`
+}
+
+func toPrefJSON(p store.Preference, ok bool) prefJSON {
+	if !ok {
+		return prefJSON{Key: p.Key, Preferences: json.RawMessage("null")}
+	}
+	t := p.UpdatedAt
+	return prefJSON{Key: p.Key, Preferences: json.RawMessage(p.Data), UpdatedAt: &t}
+}
+
+func (s *Server) getPref(w http.ResponseWriter, r *http.Request) {
+	p, ok, err := s.Store.Preference(r.Context(), r.PathValue("key"))
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toPrefJSON(p, ok))
+}
+
+// putPref stores the body (a JSON object) as is; {} or null delete it.
+func (s *Server) putPref(w http.ResponseWriter, r *http.Request) {
+	key := r.PathValue("key")
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxPref))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "body is larger than 16 KiB"})
+		return
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(body, &obj); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "body must be a JSON object"})
+		return
+	}
+	data := ""
+	if len(obj) > 0 {
+		var buf bytes.Buffer
+		if err := json.Compact(&buf, body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "body must be a JSON object"})
+			return
+		}
+		data = buf.String()
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	if err := s.Store.PutPreference(r.Context(), key, data, now); err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toPrefJSON(store.Preference{Key: key, Data: data, UpdatedAt: now}, data != ""))
+}
+
+func (s *Server) listPrefs(w http.ResponseWriter, r *http.Request) {
+	ps, err := s.Store.Preferences(r.Context())
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	items := make([]prefJSON, len(ps))
+	for i, p := range ps {
+		items[i] = toPrefJSON(p, true)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
 type itemJSON struct {

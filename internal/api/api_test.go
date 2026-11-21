@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -104,5 +105,76 @@ func TestAuth(t *testing.T) {
 	}
 	if code, _ := get(t, srv.URL+"/v1/segments", "good"); code != 400 {
 		t.Errorf("empty batch: %d", code)
+	}
+	if code, _ := get(t, srv.URL+"/v1/preferences", "bad"); code != 401 {
+		t.Errorf("preferences, bad token: %d", code)
+	}
+}
+
+func put(t *testing.T, url, body string) (int, string) {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodPut, url, strings.NewReader(body))
+	req.Header.Set("X-Plex-Token", "good")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(b)
+}
+
+// dropTime removes updatedAt (checked to be present) for comparisons.
+func dropTime(t *testing.T, s string) string {
+	t.Helper()
+	var v map[string]any
+	if err := json.Unmarshal([]byte(s), &v); err != nil {
+		t.Fatalf("bad json %q: %v", s, err)
+	}
+	if _, ok := v["updatedAt"]; !ok && v["preferences"] != nil {
+		t.Errorf("no updatedAt in %s", s)
+	}
+	delete(v, "updatedAt")
+	b, _ := json.Marshal(v)
+	return string(b)
+}
+
+func TestPreferences(t *testing.T) {
+	srv, _ := setup(t)
+	u := srv.URL + "/v1/preferences/"
+	if code, body := get(t, u+"10", "good"); code != 200 || compact(t, body) != `{"key":"10","preferences":null}` {
+		t.Fatalf("empty: %d %s", code, body)
+	}
+	obj := `{"audio":"rus", "shift":{"introStart":-2.5}}`
+	want := `{"key":"10","preferences":{"audio":"rus","shift":{"introStart":-2.5}}}`
+	if code, body := put(t, u+"10", obj); code != 200 || dropTime(t, body) != want {
+		t.Fatalf("put: %d %s", code, body)
+	}
+	if code, body := get(t, u+"10", "good"); code != 200 || dropTime(t, body) != want {
+		t.Fatalf("get: %d %s", code, body)
+	}
+	put(t, u+"7", `{"a":1}`)
+	code, body := get(t, srv.URL+"/v1/preferences", "good")
+	var list struct{ Items []map[string]any }
+	if err := json.Unmarshal([]byte(body), &list); code != 200 || err != nil || len(list.Items) != 2 ||
+		list.Items[0]["key"] != "10" || list.Items[1]["key"] != "7" {
+		t.Fatalf("list: %d %s", code, body)
+	}
+	for _, bad := range []string{`[1]`, `"x"`, `{"a":`, `{"a":"` + strings.Repeat("x", 16<<10) + `"}`} {
+		if code, _ := put(t, u+"10", bad); code != 400 {
+			t.Errorf("put %.20q: %d, want 400", bad, code)
+		}
+	}
+	for _, del := range []string{`{}`, `null`} {
+		put(t, u+"7", `{"a":1}`)
+		if code, body := put(t, u+"7", del); code != 200 || compact(t, body) != `{"key":"7","preferences":null}` {
+			t.Errorf("delete with %s: %d %s", del, code, body)
+		}
+		if _, body := get(t, u+"7", "good"); compact(t, body) != `{"key":"7","preferences":null}` {
+			t.Errorf("after delete with %s: %s", del, body)
+		}
+	}
+	if _, body := get(t, u+"10", "good"); dropTime(t, body) != want {
+		t.Errorf("bad puts changed the record: %s", body)
 	}
 }

@@ -52,6 +52,14 @@ uses for Plex. The detector checks it against the Plex server
 - `GET /v1/segments?ratingKeys=1,2,3` (≤ 500) →
   `{"items":[<same object as above>, …]}` in the order asked.
 - `GET /v1/stats` → counts of analysed items and found segments.
+- Client settings per show (its ratingKey) or movie — an opaque JSON object
+  the detector stores as is (own table, untouched by library sync):
+  - `GET /v1/preferences/{key}` →
+    `{"key":"10","preferences":{…},"updatedAt":"2026-11-21T20:00:00Z"}`, no
+    record → `{"key":"10","preferences":null}`;
+  - `PUT /v1/preferences/{key}` with a JSON object (≤ 16 KiB) → stores it and
+    answers like `GET`; `{}` or `null` delete the record; anything else → 400;
+  - `GET /v1/preferences` → `{"items":[…]}`, all records.
 - `GET /healthz` → `ok`.
 
 ## Configuration (env)
