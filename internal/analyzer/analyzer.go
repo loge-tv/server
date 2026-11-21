@@ -40,7 +40,7 @@ type Config struct {
 	SceneMin        float64 // picture this long after credits start ends them
 	SceneProbe      float64 // seconds decoded to tell a scene from coloured credits
 	SceneSpread     float64 // median luma spread (0–1) of a scene
-	BlackLevelTol   float64 // 10th luma percentile this close to the lowest is black level
+	BlackLevel      float64 // 10th luma percentile (0–1, gray) at most this is black
 	BlackLevelShare float64 // share of keyframes at black level for credits on black
 	MaxCreditChecks int     // credits start candidates probed per item
 	EndSnap         float64 // credits ending this close to the end run to the end
@@ -58,7 +58,8 @@ type Config struct {
 //	3 — black frame credits end where a scene after them starts.
 //	4 — a dark ending of the film is not credits on black.
 //	5 — luma probes fixed (were scaled by the content's bit depth).
-const Version = 5
+//	6 — black level is absolute (≤ 3 of 255), not relative to the lowest.
+const Version = 6
 
 func DefaultConfig() Config {
 	return Config{
@@ -68,7 +69,7 @@ func DefaultConfig() Config {
 		MaxAttempts:  3,
 		BlackPercent: 85, BlackShare: 0.75, BlackSpan: 60,
 		ScenePercent: 50, SceneMin: 10, SceneProbe: 30, SceneSpread: 0.08,
-		BlackLevelTol: 0.006, BlackLevelShare: 0.6, MaxCreditChecks: 30,
+		BlackLevel: 3.5 / 255, BlackLevelShare: 0.6, MaxCreditChecks: 30,
 		EndSnap:    15,
 		MaxBitDiff: 6, MaxGap: 3.5,
 		MinFingerprint: 10,
@@ -483,7 +484,7 @@ func (a *Analyzer) blackCredits(ctx context.Context, it store.Item, start float6
 			t, ok = c, true // as before the check
 			break
 		}
-		if share := OnBlackLevel(l, a.Cfg.BlackLevelTol); share >= a.Cfg.BlackLevelShare {
+		if share := OnBlackLevel(l, a.Cfg.BlackLevel); share >= a.Cfg.BlackLevelShare {
 			t, ok = c, true
 			break
 		} else {
@@ -548,19 +549,15 @@ func (a *Analyzer) isScene(ctx context.Context, it store.Item, s float64) (bool,
 }
 
 // OnBlackLevel returns the share of keyframes whose 10th luma percentile is
-// within tol of the lowest one: all of them for credits on black (the
-// background is the black level), few for a dark scene.
-func OnBlackLevel(l []media.Luma, tol float64) float64 {
+// at most level: nearly all of them for credits on black (0–2 of 255), few
+// for a dark scene (4–9).
+func OnBlackLevel(l []media.Luma, level float64) float64 {
 	if len(l) == 0 {
 		return 0
 	}
-	lo := l[0].Low
-	for _, x := range l {
-		lo = min(lo, x.Low)
-	}
 	n := 0
 	for _, x := range l {
-		if x.Low-lo <= tol {
+		if x.Low <= level {
 			n++
 		}
 	}

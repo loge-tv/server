@@ -120,17 +120,23 @@ func TestOnBlackLevel(t *testing.T) {
 		}
 		return out
 	}
-	dark := lows(7, 7, 7, 7, 6, 5, 64, 7, 4, 5, 9, 6, 9, 4, 6)
-	if s := OnBlackLevel(dark, cfg.BlackLevelTol); s >= cfg.BlackLevelShare {
-		t.Errorf("dark ending taken for credits: share %v", s)
+	for name, l := range map[string][]media.Luma{
+		"It Listens, ending":  lows(7, 7, 7, 7, 6, 5, 64, 7, 4, 5, 9, 6, 9, 4, 6),
+		"It Listens, hallway": lows(5, 5, 8, 5, 4, 5, 5, 5, 5, 6, 6, 6, 6, 5, 6),
+	} {
+		if s := OnBlackLevel(l, cfg.BlackLevel); s >= cfg.BlackLevelShare {
+			t.Errorf("%s taken for credits: share %v", name, s)
+		}
 	}
 	for name, l := range map[string][]media.Luma{
 		"It Listens credits":     lows(2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2),
 		"Thunderbolts credits":   lows(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
 		"Trassa, after a fade":   lows(10, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
 		"Regular Show, end card": lows(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 2, 0),
+		"Regular Show S8E9":      lows(2, 2, 2, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 0, 2),
+		"Scary Movie":            lows(2, 5, 7, 6, 2, 2, 2, 2, 2, 2, 4, 6, 9, 10, 10, 10, 2, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
 	} {
-		if s := OnBlackLevel(l, cfg.BlackLevelTol); s < cfg.BlackLevelShare {
+		if s := OnBlackLevel(l, cfg.BlackLevel); s < cfg.BlackLevelShare {
 			t.Errorf("%s not taken for credits: share %v", name, s)
 		}
 	}
