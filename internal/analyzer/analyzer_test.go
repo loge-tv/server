@@ -63,6 +63,52 @@ func TestBlackStart(t *testing.T) {
 	}
 }
 
+func TestSceneAfter(t *testing.T) {
+	var frames []media.Frame
+	add := func(from, to float64, b int) {
+		for x := from; x < to; x += 2 {
+			frames = append(frames, media.Frame{T: x, PBlack: b})
+		}
+	}
+	add(0, 100, 20)    // film
+	add(100, 160, 95)  // credits on black
+	add(160, 164, 30)  // 4 s colour logo inside the credits: not a scene
+	add(164, 200, 95)  // more credits
+	add(200, 230, 25)  // post-credits scene
+	add(230, 240, 100) // black to the end
+	if got := SceneRuns(frames, 100, 240, 50, 10); len(got) != 1 || got[0] != 200 {
+		t.Fatalf("got %v, want [200]", got)
+	}
+	// A scene running to the end of the file counts too.
+	frames = frames[:len(frames)-5]
+	if got := SceneRuns(frames, 100, 230, 50, 10); len(got) != 1 || got[0] != 200 {
+		t.Fatalf("to the end: got %v, want [200]", got)
+	}
+	// Credits to the end with only short logos: no scene.
+	if got := SceneRuns(frames[:100], 100, 200, 50, 10); len(got) != 0 {
+		t.Fatalf("found scenes %v in credits without one", got)
+	}
+}
+
+// Measured luma spreads (10th–90th percentile, middle half of the frame):
+// credits on a blue background in "It Listens" vs. post-credits scenes.
+func TestSceneSpread(t *testing.T) {
+	cfg := DefaultConfig()
+	flat := []float64{.03, .03, .029, .028, .028, .027, .027, .026, .026, .2, .26, .3}
+	if median(flat) >= cfg.SceneSpread {
+		t.Errorf("coloured credits taken for a scene: %v", median(flat))
+	}
+	for _, scene := range [][]float64{
+		{.33, .27, .21, .2, .18, .21, .21, .22, .22, .24}, // Thunderbolts*
+		{.22, .36, .15, .24, .19, .22, .38, .21},          // Paradise S2E3, 8 bit
+		{.13, .3, .24, .29, .22, .27, .3, .3},             // Superman
+	} {
+		if median(scene) < cfg.SceneSpread {
+			t.Errorf("scene not recognised: %v", median(scene))
+		}
+	}
+}
+
 func TestStaleWindow(t *testing.T) {
 	a := &Analyzer{Cfg: DefaultConfig()}
 	// S05E09 fingerprinted while Plex said 1260 s; the file is 1284 s.

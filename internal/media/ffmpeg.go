@@ -134,6 +134,67 @@ func (f *FFmpeg) BlackFrames(ctx context.Context, path string, start, dur float6
 	return frames, nil
 }
 
+var statRe = regexp.MustCompile(`signalstats\.Y(LOW|HIGH|BITDEPTH)=([0-9.]+)`)
+
+// LumaSpread decodes keyframes in [start, start+dur) and returns, for each,
+// the spread between the 10th and 90th luma percentiles of the middle half
+// of the picture (letterbox bars cut off), as a share of the full range.
+// Flat backgrounds (credits on a colour) give a few percent, scenes 15+.
+func (f *FFmpeg) LumaSpread(ctx context.Context, path string, start, dur float64) ([]float64, error) {
+	ctx, cancel := context.WithTimeout(ctx, f.Timeout)
+	defer cancel()
+	cmd := f.command(ctx,
+		"-threads", "1", "-skip_frame", "nokey",
+		"-ss", ftoa(start), "-t", ftoa(dur),
+		"-i", path,
+		"-map", "0:v:0", "-an", "-sn", "-dn",
+		"-vf", "scale=320:-2,crop=iw:ih*0.5,signalstats,metadata=print",
+		"-loglevel", "info",
+		"-f", "null", "-")
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	var out []float64
+	var tail []string
+	var low, high float64
+	sc := bufio.NewScanner(stderr)
+	sc.Buffer(make([]byte, 64<<10), 1<<20)
+	for sc.Scan() {
+		line := sc.Text()
+		m := statRe.FindStringSubmatch(line)
+		if m == nil {
+			if len(tail) < 20 && !strings.Contains(line, "Parsed_metadata") {
+				tail = append(tail, line)
+			}
+			continue
+		}
+		v, _ := strconv.ParseFloat(m[2], 64)
+		switch m[1] {
+		case "LOW":
+			low = v
+		case "HIGH":
+			high = v
+		case "BITDEPTH": // printed after LOW and HIGH of the same frame
+			out = append(out, (high-low)/(float64(int(1)<<int(v))-1))
+		}
+	}
+	werr := cmd.Wait()
+	if ctx.Err() != nil {
+		return nil, fmt.Errorf("ffmpeg signalstats: %w", ctx.Err())
+	}
+	if werr != nil {
+		return nil, fmt.Errorf("ffmpeg signalstats: %v: %s", werr, strings.Join(tail, " | "))
+	}
+	if len(out) == 0 {
+		return nil, errors.New("ffmpeg signalstats: no frames decoded")
+	}
+	return out, nil
+}
+
 func ftoa(v float64) string { return strconv.FormatFloat(v, 'f', 3, 64) }
 
 type limitWriter struct {

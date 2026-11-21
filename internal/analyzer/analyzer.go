@@ -35,6 +35,10 @@ type Config struct {
 	BlackPercent   int     // keyframe counts as black at this share of dark pixels
 	BlackShare     float64 // share of black keyframes needed after credits start
 	BlackSpan      float64 // ...over this many seconds
+	ScenePercent   int     // keyframe darker than this share is picture, not credits
+	SceneMin       float64 // picture this long after credits start ends them
+	SceneProbe     float64 // seconds decoded to tell a scene from coloured credits
+	SceneSpread    float64 // median luma spread (0–1) of a scene
 	EndSnap        float64 // credits ending this close to the end run to the end
 	MaxBitDiff     int
 	MaxGap         float64
@@ -47,7 +51,8 @@ type Config struct {
 //
 //	2 — black frame credits may be shorter than BlackSpan at the very end;
 //	    caches taken with a too short Plex duration are redone.
-const Version = 2
+//	3 — black frame credits end where a scene after them starts.
+const Version = 3
 
 func DefaultConfig() Config {
 	return Config{
@@ -56,6 +61,7 @@ func DefaultConfig() Config {
 		MovieCredits: 1200,
 		MaxAttempts:  3,
 		BlackPercent: 85, BlackShare: 0.75, BlackSpan: 60,
+		ScenePercent: 50, SceneMin: 10, SceneProbe: 30, SceneSpread: 0.08,
 		EndSnap:    15,
 		MaxBitDiff: 6, MaxGap: 3.5,
 		MinFingerprint: 10,
@@ -454,7 +460,85 @@ func (a *Analyzer) blackCredits(ctx context.Context, it store.Item, start float6
 	if !ok || end-t < a.Cfg.CreditsMin {
 		return store.Segment{}, false, nil
 	}
+	// A scene after the credits (post-credits, mid-credits) is not skipped.
+	// Studio logos in the last EndSnap seconds are not scenes, and neither
+	// are credits on a colour background (flat picture, checked by ffmpeg).
+	for _, s := range SceneRuns(frames, t, end, a.Cfg.ScenePercent, a.Cfg.SceneMin) {
+		if s-t < a.Cfg.CreditsMin || end-s <= a.Cfg.EndSnap {
+			continue
+		}
+		scene, err := a.isScene(ctx, it, s)
+		if err != nil {
+			if ctx.Err() != nil {
+				return store.Segment{}, false, ctx.Err()
+			}
+			a.Log.Warn("scene check", "key", it.RatingKey, "at", s, "err", err)
+			continue
+		}
+		if scene {
+			end = float64(int(s*10)) / 10
+			break
+		}
+	}
 	return store.Segment{Type: "credits", Start: float64(int(t*10)) / 10, End: end, Source: "blackframe"}, true, nil
+}
+
+// isScene checks (or reuses a check of) SceneProbe seconds of keyframes
+// from s: a scene has textured picture, credits a flat background.
+func (a *Analyzer) isScene(ctx context.Context, it store.Item, s float64) (bool, error) {
+	spread, have, err := a.Store.SceneCheck(ctx, it.RatingKey, s)
+	if err != nil {
+		return false, err
+	}
+	if !have {
+		if err := a.Guard(ctx); err != nil {
+			return false, err
+		}
+		sp, err := a.FF.LumaSpread(ctx, it.Path, s, a.Cfg.SceneProbe)
+		if err != nil {
+			return false, err
+		}
+		spread = median(sp)
+		if err := a.Store.PutSceneCheck(ctx, it.RatingKey, s, spread); err != nil {
+			return false, err
+		}
+	}
+	a.Log.Debug("scene check", "key", it.RatingKey, "at", s, "spread", spread)
+	return spread >= a.Cfg.SceneSpread, nil
+}
+
+func median(v []float64) float64 {
+	s := append([]float64(nil), v...)
+	sort.Float64s(s)
+	return s[len(s)/2]
+}
+
+// SceneRuns returns the starts of runs of picture keyframes (dark share
+// below pct) after from that last at least min seconds: until the next
+// darker keyframe, or end. frames must be sorted by time.
+func SceneRuns(frames []media.Frame, from, end float64, pct int, min float64) []float64 {
+	var out []float64
+	runStart, n := 0.0, 0
+	for _, f := range frames {
+		if f.T <= from {
+			continue
+		}
+		if f.PBlack < pct {
+			if n == 0 {
+				runStart = f.T
+			}
+			n++
+			continue
+		}
+		if n >= 2 && f.T-runStart >= min {
+			out = append(out, runStart)
+		}
+		n = 0
+	}
+	if n >= 2 && end-runStart >= min {
+		out = append(out, runStart)
+	}
+	return out
 }
 
 // stale reports whether a cached end-of-file window that started at cached

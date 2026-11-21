@@ -25,7 +25,11 @@ SkipTV clients ask it for segments by Plex `ratingKey` and skip them.
   quarter) and for episodes whose ending matched nothing, ffmpeg decodes only
   keyframes, scaled to 320 px, and credits start at the first keyframe that is
   ≥ 85 % dark and is followed by ≥ 75 % dark keyframes for a minute (or until
-  the end of the file, if that is closer — sitcom credits are ~25 s).
+  the end of the file, if that is closer — sitcom credits are ~25 s). They end
+  where a scene after them starts (mid/post-credits): ≥ 10 s of keyframes
+  under 50 % dark, outside the last 15 s (studio logos), whose picture is
+  textured — the median 10th–90th luma percentile spread of 30 s of keyframes
+  is ≥ 8 % (credits on a colour background give ~3 %).
 - Failed or empty decodes are not cached as results; an item is retried up to
   3 times (on later passes).
 - Plex first reports a rough duration (whole minutes) for new files. When it
