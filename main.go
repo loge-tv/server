@@ -43,8 +43,12 @@ func main() {
 		level = slog.LevelDebug
 	}
 	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
-	if len(os.Args) > 1 && os.Args[1] == "match" {
-		if err := debugMatch(os.Args[2:]); err != nil {
+	if len(os.Args) > 1 && (os.Args[1] == "match" || os.Args[1] == "segments") {
+		cmd := debugMatch
+		if os.Args[1] == "segments" {
+			cmd = debugSegments
+		}
+		if err := cmd(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}

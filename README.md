@@ -24,9 +24,16 @@ SkipTV clients ask it for segments by Plex `ratingKey` and skip them.
 - **Credits by black frames**: for movies (last 20 min, at most the last
   quarter) and for episodes whose ending matched nothing, ffmpeg decodes only
   keyframes, scaled to 320 px, and credits start at the first keyframe that is
-  ≥ 85 % dark and is followed by ≥ 75 % dark keyframes for a minute.
+  ≥ 85 % dark and is followed by ≥ 75 % dark keyframes for a minute (or until
+  the end of the file, if that is closer — sitcom credits are ~25 s).
 - Failed or empty decodes are not cached as results; an item is retried up to
   3 times (on later passes).
+- Plex first reports a rough duration (whole minutes) for new files. When it
+  grows later, the item is re-analysed, and cached windows that stop short of
+  the new end are decoded again. Bumping `analyzer.Version` recomputes all
+  results from the caches (a minute, no ffmpeg).
+- `detector segments` (in the pod) dumps every item with its segments as TSV,
+  to diff results before and after a change.
 - One file at a time, ffmpeg under `nice`, `-threads 1`, capped probing. Before
   every ffmpeg run it checks the node's `MemAvailable` in VictoriaMetrics and
   waits while it's below `MIN_MEM_AVAILABLE_MB`.

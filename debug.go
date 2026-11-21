@@ -5,11 +5,52 @@ import (
 	"errors"
 	"fmt"
 	"math/bits"
+	"sort"
 
 	"github.com/emildeev/skiptv/detector/internal/fingerprint"
 	"github.com/emildeev/skiptv/detector/internal/match"
 	"github.com/emildeev/skiptv/detector/internal/store"
 )
+
+// debugSegments: detector segments — every item with its segments as TSV
+// (show, season, episode, title, key, type, start, end, source), sorted, to
+// diff results before and after a change of the matching rules.
+func debugSegments(args []string) error {
+	st, err := store.Open(env("DB_PATH", "/data/detector.db"))
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	ctx := context.Background()
+	items, err := st.Items(ctx)
+	if err != nil {
+		return err
+	}
+	keys := make([]string, 0, len(items))
+	for k := range items {
+		keys = append(keys, k)
+	}
+	res, err := st.Results(ctx, keys)
+	if err != nil {
+		return err
+	}
+	var lines []string
+	for _, k := range keys {
+		it := items[k]
+		head := fmt.Sprintf("%s\t%02d\t%02d\t%s\t%s", it.ShowTitle, it.Season, it.Episode, it.Title, k)
+		if len(res[k].Segments) == 0 {
+			lines = append(lines, head+"\t-")
+		}
+		for _, s := range res[k].Segments {
+			lines = append(lines, fmt.Sprintf("%s\t%s\t%.1f\t%.1f\t%s", head, s.Type, s.Start, s.End, s.Source))
+		}
+	}
+	sort.Strings(lines)
+	for _, l := range lines {
+		fmt.Println(l)
+	}
+	return nil
+}
 
 // debugMatch: detector match intro|credits <ratingKey> <ratingKey>...
 // Prints, for each pair, the best shared run with relaxed length limits

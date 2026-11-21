@@ -34,7 +34,8 @@ CREATE TABLE IF NOT EXISTS items (
 	analyzed    INTEGER NOT NULL DEFAULT 0,
 	attempts    INTEGER NOT NULL DEFAULT 0,
 	error       TEXT NOT NULL DEFAULT '',
-	analyzed_at INTEGER NOT NULL DEFAULT 0
+	analyzed_at INTEGER NOT NULL DEFAULT 0,
+	algo        INTEGER NOT NULL DEFAULT 0 -- analyzer version of the result
 );
 CREATE INDEX IF NOT EXISTS items_season ON items(season_key);
 CREATE TABLE IF NOT EXISTS fingerprints (
@@ -69,7 +70,25 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("schema: %w", err)
 	}
+	if err := migrate(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
 	return &Store{db: db}, nil
+}
+
+// migrate adds columns missing in databases created by older versions.
+func migrate(db *sql.DB) error {
+	var n int
+	if err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('items') WHERE name='algo'`).Scan(&n); err != nil {
+		return err
+	}
+	if n == 0 {
+		if _, err := db.Exec(`ALTER TABLE items ADD COLUMN algo INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Store) Close() error { return s.db.Close() }
@@ -90,14 +109,15 @@ type Item struct {
 	Attempts   int
 	Error      string
 	AnalyzedAt int64
+	Algo       int // analyzer version that produced the result
 }
 
-const itemCols = `rating_key, kind, season_key, show_title, title, season, episode, path, size, duration, audio, analyzed, attempts, error, analyzed_at`
+const itemCols = `rating_key, kind, season_key, show_title, title, season, episode, path, size, duration, audio, analyzed, attempts, error, analyzed_at, algo`
 
 func scanItem(sc interface{ Scan(...any) error }) (Item, error) {
 	var it Item
 	err := sc.Scan(&it.RatingKey, &it.Kind, &it.SeasonKey, &it.ShowTitle, &it.Title, &it.Season, &it.Episode,
-		&it.Path, &it.Size, &it.Duration, &it.Audio, &it.Analyzed, &it.Attempts, &it.Error, &it.AnalyzedAt)
+		&it.Path, &it.Size, &it.Duration, &it.Audio, &it.Analyzed, &it.Attempts, &it.Error, &it.AnalyzedAt, &it.Algo)
 	return it, err
 }
 
@@ -126,6 +146,9 @@ func (s *Store) Item(ctx context.Context, key string) (Item, bool, error) {
 	return it, err == nil, err
 }
 
+// DurationSlack: a duration that grew by more than this re-opens analysis.
+const DurationSlack = 5
+
 // UpsertItem stores library metadata. If the file changed (path or size),
 // cached analysis of the item is dropped.
 func (s *Store) UpsertItem(ctx context.Context, it Item) error {
@@ -136,7 +159,8 @@ func (s *Store) UpsertItem(ctx context.Context, it Item) error {
 	defer tx.Rollback()
 	var path string
 	var size int64
-	err = tx.QueryRowContext(ctx, `SELECT path, size FROM items WHERE rating_key=?`, it.RatingKey).Scan(&path, &size)
+	var dur float64
+	err = tx.QueryRowContext(ctx, `SELECT path, size, duration FROM items WHERE rating_key=?`, it.RatingKey).Scan(&path, &size, &dur)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		_, err = tx.ExecContext(ctx, `INSERT INTO items (rating_key, kind, season_key, show_title, title, season, episode, path, size, duration, audio)
@@ -152,6 +176,13 @@ func (s *Store) UpsertItem(ctx context.Context, it Item) error {
 		_, err = tx.ExecContext(ctx, `UPDATE items SET kind=?, season_key=?, show_title=?, title=?, season=?, episode=?, path=?, size=?, duration=?,
 			audio=?, analyzed=0, attempts=0, error='', analyzed_at=0 WHERE rating_key=?`,
 			it.Kind, it.SeasonKey, it.ShowTitle, it.Title, it.Season, it.Episode, it.Path, it.Size, it.Duration, it.Audio, it.RatingKey)
+	case it.Duration > dur+DurationSlack:
+		// Plex first reports a rough duration (whole minutes) and refines it
+		// after analysing the file: the cached end-of-file windows may miss
+		// the real end. The analyzer re-checks them on the next pass.
+		_, err = tx.ExecContext(ctx, `UPDATE items SET kind=?, season_key=?, show_title=?, title=?, season=?, episode=?, duration=?,
+			analyzed=0, attempts=0 WHERE rating_key=?`,
+			it.Kind, it.SeasonKey, it.ShowTitle, it.Title, it.Season, it.Episode, it.Duration, it.RatingKey)
 	default:
 		_, err = tx.ExecContext(ctx, `UPDATE items SET kind=?, season_key=?, show_title=?, title=?, season=?, episode=?, duration=? WHERE rating_key=?`,
 			it.Kind, it.SeasonKey, it.ShowTitle, it.Title, it.Season, it.Episode, it.Duration, it.RatingKey)
@@ -218,18 +249,20 @@ func (s *Store) PutBlackScan(ctx context.Context, key string, start float64, fra
 	return err
 }
 
-func (s *Store) BlackScan(ctx context.Context, key string) ([]media.Frame, bool, error) {
+// BlackScan returns the cached scan and the second it started at.
+func (s *Store) BlackScan(ctx context.Context, key string) ([]media.Frame, float64, bool, error) {
 	var raw string
-	err := s.db.QueryRowContext(ctx, `SELECT frames FROM black_scans WHERE rating_key=?`, key).Scan(&raw)
+	var start float64
+	err := s.db.QueryRowContext(ctx, `SELECT start, frames FROM black_scans WHERE rating_key=?`, key).Scan(&start, &raw)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, false, nil
+		return nil, 0, false, nil
 	}
 	if err != nil {
-		return nil, false, err
+		return nil, 0, false, err
 	}
 	var frames []media.Frame
 	err = json.Unmarshal([]byte(raw), &frames)
-	return frames, err == nil, err
+	return frames, start, err == nil, err
 }
 
 type Segment struct {
@@ -239,8 +272,9 @@ type Segment struct {
 	Source string  `json:"-"`
 }
 
-// SetResult replaces the segments of an item and marks it analyzed.
-func (s *Store) SetResult(ctx context.Context, key string, segs []Segment) error {
+// SetResult replaces the segments of an item and marks it analyzed by
+// analyzer version algo.
+func (s *Store) SetResult(ctx context.Context, key string, algo int, segs []Segment) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -255,7 +289,7 @@ func (s *Store) SetResult(ctx context.Context, key string, segs []Segment) error
 			return err
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE items SET analyzed=1, error='', analyzed_at=? WHERE rating_key=?`, time.Now().Unix(), key); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE items SET analyzed=1, error='', analyzed_at=?, algo=? WHERE rating_key=?`, time.Now().Unix(), algo, key); err != nil {
 		return err
 	}
 	return tx.Commit()

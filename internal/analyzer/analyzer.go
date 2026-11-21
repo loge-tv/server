@@ -41,6 +41,14 @@ type Config struct {
 	MinFingerprint float64 // a fingerprint with less non-silent audio is an error
 }
 
+// Version of the matching rules. Bump it when they change: results of an
+// older version are recomputed on the next pass from the cached
+// fingerprints and black frame scans (no ffmpeg).
+//
+//	2 — black frame credits may be shorter than BlackSpan at the very end;
+//	    caches taken with a too short Plex duration are redone.
+const Version = 2
+
 func DefaultConfig() Config {
 	return Config{
 		IntroPercent: 0.25, IntroLimit: 600, IntroMin: 15, IntroMax: 120,
@@ -176,7 +184,8 @@ func (a *Analyzer) Work(ctx context.Context) error {
 
 func (a *Analyzer) pending(items ...store.Item) bool {
 	for _, it := range items {
-		if !it.Analyzed && it.Attempts < a.Cfg.MaxAttempts && (a.Filter == "" || strings.Contains(it.Path, a.Filter)) {
+		outdated := !it.Analyzed || it.Algo < Version
+		if outdated && it.Attempts < a.Cfg.MaxAttempts && (a.Filter == "" || strings.Contains(it.Path, a.Filter)) {
 			return true
 		}
 	}
@@ -323,12 +332,14 @@ func (a *Analyzer) season(ctx context.Context, eps []store.Item) error {
 	var ready []loaded
 	for i := range eps {
 		it := &eps[i]
-		_, have, err := a.Store.Fingerprint(ctx, it.RatingKey, "credits")
+		fc, have, err := a.Store.Fingerprint(ctx, it.RatingKey, "credits")
 		if err != nil {
 			return err
 		}
-		if !have {
-			if it.Analyzed || it.Attempts >= a.Cfg.MaxAttempts {
+		// Taken while Plex reported a shorter duration: misses the real end.
+		short := have && stale(fc.Offset, a.creditsStart(it.Duration))
+		if !have || short {
+			if !short && (it.Analyzed || it.Attempts >= a.Cfg.MaxAttempts) {
 				continue
 			}
 			if err := a.fingerprintEpisode(ctx, it); err != nil {
@@ -343,7 +354,7 @@ func (a *Analyzer) season(ctx context.Context, eps []store.Item) error {
 		if err != nil {
 			return err
 		}
-		fc, _, err := a.Store.Fingerprint(ctx, it.RatingKey, "credits")
+		fc, _, err = a.Store.Fingerprint(ctx, it.RatingKey, "credits")
 		if err != nil {
 			return err
 		}
@@ -378,7 +389,7 @@ func (a *Analyzer) season(ctx context.Context, eps []store.Item) error {
 				nBlack++
 			}
 		}
-		if err := a.Store.SetResult(ctx, l.item.RatingKey, segs); err != nil {
+		if err := a.Store.SetResult(ctx, l.item.RatingKey, Version, segs); err != nil {
 			return err
 		}
 	}
@@ -415,11 +426,11 @@ func sec(points int) float64 {
 // blackCredits scans (or reuses a scan of) keyframes from start to the end
 // and returns credits starting at the first sustained run of black frames.
 func (a *Analyzer) blackCredits(ctx context.Context, it store.Item, start float64) (store.Segment, bool, error) {
-	frames, have, err := a.Store.BlackScan(ctx, it.RatingKey)
+	frames, from, have, err := a.Store.BlackScan(ctx, it.RatingKey)
 	if err != nil {
 		return store.Segment{}, false, err
 	}
-	if !have {
+	if !have || stale(from, start) {
 		if err := a.Guard(ctx); err != nil {
 			return store.Segment{}, false, err
 		}
@@ -434,14 +445,30 @@ func (a *Analyzer) blackCredits(ctx context.Context, it store.Item, start float6
 		}
 	}
 	t, ok := BlackStart(frames, a.Cfg.BlackPercent, a.Cfg.BlackShare, a.Cfg.BlackSpan)
-	if !ok || it.Duration-t < a.Cfg.CreditsMin {
+	// Plex sometimes under-reports the duration (Kraven .m2ts: 1094 s of
+	// 7616): the scan itself shows how long the file is.
+	end := it.Duration
+	if len(frames) > 0 {
+		end = max(end, frames[len(frames)-1].T)
+	}
+	if !ok || end-t < a.Cfg.CreditsMin {
 		return store.Segment{}, false, nil
 	}
-	return store.Segment{Type: "credits", Start: float64(int(t*10)) / 10, End: it.Duration, Source: "blackframe"}, true, nil
+	return store.Segment{Type: "credits", Start: float64(int(t*10)) / 10, End: end, Source: "blackframe"}, true, nil
+}
+
+// stale reports whether a cached end-of-file window that started at cached
+// should have started at want: the duration grew since, so the cache does
+// not reach the real end of the file. Shrinking is fine (ffmpeg stops at
+// EOF), and Plex's numbers wobble by a second or two.
+func stale(cached, want float64) bool {
+	return want > cached+store.DurationSlack/2
 }
 
 // BlackStart returns the time of the first black keyframe after which at
-// least share of the keyframes within span seconds are black too.
+// least share of the keyframes within span seconds are black too. Closer
+// than span to the end of the scan the share is taken over the frames left:
+// short sitcom credits (~25 s on black, then a bright vanity card) count.
 func BlackStart(frames []media.Frame, pct int, share, span float64) (float64, bool) {
 	sort.Slice(frames, func(i, j int) bool { return frames[i].T < frames[j].T })
 	for i, f := range frames {
@@ -458,8 +485,7 @@ func BlackStart(frames []media.Frame, pct int, share, span float64) (float64, bo
 				black++
 			}
 		}
-		last := frames[len(frames)-1].T
-		if total >= 3 && float64(black) >= share*float64(total) && (last-f.T >= span || float64(black) == float64(total)) {
+		if total >= 3 && float64(black) >= share*float64(total) {
 			return f.T, true
 		}
 	}
@@ -482,5 +508,5 @@ func (a *Analyzer) movie(ctx context.Context, it store.Item) error {
 		segs = append(segs, s)
 	}
 	a.Log.Info("movie analyzed", "title", it.Title, "credits", ok, "start", s.Start, "took", time.Since(t0).Round(time.Second))
-	return a.Store.SetResult(ctx, it.RatingKey, segs)
+	return a.Store.SetResult(ctx, it.RatingKey, Version, segs)
 }
