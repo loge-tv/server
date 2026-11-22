@@ -1,5 +1,6 @@
-// Package tmdb asks The Movie Database for recommendations: titles like a
-// given movie or show, for the Loge "Потому что вы смотрели…" shelf.
+// Package tmdb asks The Movie Database for recommendations (titles like a
+// given movie or show, for the Loge "Потому что вы смотрели…" shelf) and for
+// trailers.
 package tmdb
 
 import (
@@ -54,8 +55,9 @@ type Client struct {
 	HTTP *http.Client
 	TTL  time.Duration // cache of answers; 0: a day
 
-	mu    sync.Mutex
-	cache map[string]cacheEntry
+	mu         sync.Mutex
+	cache      map[string]cacheEntry
+	videoCache map[string]videoEntry
 }
 
 type cacheEntry struct {

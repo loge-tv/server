@@ -99,3 +99,43 @@ func TestRecommendationsErrors(t *testing.T) {
 }
 
 func contains(s, sub string) bool { return strings.Contains(s, sub) }
+
+type fakeVideos struct{}
+
+func (fakeVideos) Videos(_ context.Context, kind tmdb.Kind, id int, language string) ([]tmdb.Video, error) {
+	if id == 7 {
+		return nil, tmdb.ErrUnavailable
+	}
+	return []tmdb.Video{{Key: language + "-" + string(kind), Type: "Trailer", Language: language[:2], Official: true}}, nil
+}
+
+func TestVideos(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	srv := httptest.NewServer((&Server{Store: st, Auth: &fakeAuth{}, Videos: fakeVideos{}, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		TTL: time.Minute, DenyTTL: time.Minute}).Handler())
+	defer srv.Close()
+	if code, body := get(t, srv.URL+"/v1/videos?item=movie:603", "good"); code != 200 || !contains(body, `"key":"ru-RU-movie"`) {
+		t.Errorf("default language: %d %s", code, body)
+	}
+	if code, body := get(t, srv.URL+"/v1/videos?item=tv:1396&language=en-US", "good"); code != 200 || !contains(body, `"key":"en-US-tv"`) {
+		t.Errorf("tv: %d %s", code, body)
+	}
+	for _, q := range []string{"", "item=show:1", "item=movie:x", "item=movie:1&language=russian"} {
+		if code, body := get(t, srv.URL+"/v1/videos?"+q, "good"); code != 400 {
+			t.Errorf("%q: %d %s", q, code, body)
+		}
+	}
+	if code, _ := get(t, srv.URL+"/v1/videos?item=movie:7", "good"); code != 502 {
+		t.Errorf("tmdb down: %d", code)
+	}
+	if code, _ := get(t, srv.URL+"/v1/videos?item=movie:603", ""); code != 401 {
+		t.Errorf("no token: %d", code)
+	}
+	if code, body := get(t, setupRecs(t, nil).URL+"/v1/videos?item=movie:603", "good"); code != 404 || !contains(body, `"configured":false`) {
+		t.Errorf("no key: %d %s", code, body)
+	}
+}

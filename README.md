@@ -99,6 +99,13 @@ for a browser's `<video src>`). The detector checks it against the Plex server
   `{"configured":false}` without `TMDB_API_KEY` (clients hide the shelf), 502 when TMDB
   refuses the key or no seed got an answer, 400 for bad seeds or language. No Plex token
   goes to TMDB.
+- `GET /v1/videos?item=movie:603[&language=ru-RU]` (a TMDB id) → YouTube trailers and teasers
+  of the movie or show for the clients' trailer button: `{"videos":[{"key":"<youtube id>",
+  "name":"Трейлер","type":"Trailer","language":"ru","official":true,"publishedAt":"…",
+  "size":1080}]}`, best first — in the language asked, then English, then the rest;
+  trailers before teasers, official first, newest first. Cached for a day. Errors like
+  `/v1/recommendations`: 404 `{"configured":false}` without `TMDB_API_KEY`, 502 when TMDB
+  refuses the key or doesn't answer, 400 for a bad item or language.
 - CORS for the web client on every `/v1/*`: `Access-Control-Allow-Origin: *`
   (auth is a header, no cookies), methods `GET, HEAD, PUT, OPTIONS`, headers
   `X-Plex-Token, Content-Type, Accept, Range`, exposed `Content-Length,
@@ -129,7 +136,7 @@ for a browser's `<video src>`). The detector checks it against the Plex server
 | `ANALYZE` | `true` | `false` serves the API only |
 | `ONLY_PATH` | — | analyse only items whose path contains this |
 | `VM_URL` | — | VictoriaMetrics for the memory guard |
-| `TMDB_API_KEY` | — | TMDB v3 API key or v4 read access token; unset: no recommendations |
+| `TMDB_API_KEY` | — | TMDB v3 API key or v4 read access token; unset: no recommendations or trailers |
 | `TMDB_URL` | `https://api.themoviedb.org/3` | |
 | `VM_MEM_QUERY` | `node_memory_MemAvailable_bytes{node="raspberrypi5"}` | |
 | `MIN_MEM_AVAILABLE_MB` | `400` | |
