@@ -93,7 +93,7 @@ func run(log *slog.Logger) error {
 
 	srv := &http.Server{
 		Addr:              env("LISTEN", ":8080"),
-		Handler:           (&api.Server{Store: st, Auth: px, Log: log, TTL: 10 * time.Minute, DenyTTL: time.Minute}).Handler(),
+		Handler:           (&api.Server{Store: st, Auth: px, Files: px, Log: log, TTL: 10 * time.Minute, DenyTTL: time.Minute}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go func() {

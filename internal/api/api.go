@@ -25,12 +25,14 @@ type Checker interface {
 type Server struct {
 	Store   *store.Store
 	Auth    Checker
+	Files   FileFinder // nil: /v1/files answers 404
 	Log     *slog.Logger
-	TTL     time.Duration // cache of accepted tokens
+	TTL     time.Duration // cache of accepted tokens and of resolved files
 	DenyTTL time.Duration // cache of rejected tokens
 
 	mu    sync.Mutex
 	cache map[[32]byte]authEntry
+	files map[[32]byte]fileEntry
 }
 
 type authEntry struct {
@@ -51,10 +53,13 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /v1/preferences/{key}", s.auth(http.HandlerFunc(s.getPref)))
 	mux.Handle("PUT /v1/preferences/{key}", s.auth(http.HandlerFunc(s.putPref)))
 	mux.Handle("GET /v1/preferences", s.auth(http.HandlerFunc(s.listPrefs)))
+	// GET covers HEAD. {name} is ignored: players like a file name with an extension.
+	mux.Handle("GET /v1/files/{ratingKey}/{partId}", s.auth(http.HandlerFunc(s.file)))
+	mux.Handle("GET /v1/files/{ratingKey}/{partId}/{name}", s.auth(http.HandlerFunc(s.file)))
 	return cors(mux)
 }
 
-// cors lets the SkipTV web client call /v1 from a browser. Auth is the
+// cors lets the Loge web client call /v1 from a browser. Auth is the
 // X-Plex-Token header (no cookies), so any origin is fine; preflights carry
 // no token and are answered without auth.
 func cors(next http.Handler) http.Handler {
@@ -65,8 +70,9 @@ func cors(next http.Handler) http.Handler {
 		}
 		h := w.Header()
 		h.Set("Access-Control-Allow-Origin", "*")
-		h.Set("Access-Control-Allow-Methods", "GET, PUT, OPTIONS")
-		h.Set("Access-Control-Allow-Headers", "X-Plex-Token, Content-Type, Accept")
+		h.Set("Access-Control-Allow-Methods", "GET, HEAD, PUT, OPTIONS")
+		h.Set("Access-Control-Allow-Headers", "X-Plex-Token, Content-Type, Accept, Range")
+		h.Set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges")
 		h.Set("Access-Control-Max-Age", "86400")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -216,7 +222,7 @@ func (s *Server) stats(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		token := r.Header.Get("X-Plex-Token")
+		token := tokenOf(r)
 		if token == "" {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "X-Plex-Token header is required"})
 			return

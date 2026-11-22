@@ -3,6 +3,8 @@
 Server-side intro and credits detection for a Plex library without Plex Pass.
 Loge clients ([Apple TV, iPhone, Mac](https://github.com/loge-tv/apple), [Android](https://github.com/loge-tv/android),
 [web](https://github.com/loge-tv/web)) ask it for segments by Plex `ratingKey` and skip them.
+Outside the home network it also hands out the video files themselves, which Plex without
+Plex Pass refuses there.
 
 ## How it works
 
@@ -66,7 +68,8 @@ Loge clients ([Apple TV, iPhone, Mac](https://github.com/loge-tv/apple), [Androi
 ## API
 
 All `/v1` endpoints need the `X-Plex-Token` header: the token the client
-uses for Plex. The detector checks it against the Plex server
+uses for Plex (`/v1/files` also takes it as the `X-Plex-Token` query parameter,
+for a browser's `<video src>`). The detector checks it against the Plex server
 (`/library/sections`) and caches the answer for 10 minutes (rejections for 1).
 
 - `GET /v1/segments/{ratingKey}` →
@@ -86,9 +89,21 @@ uses for Plex. The detector checks it against the Plex server
     answers like `GET`; `{}` or `null` delete the record; anything else → 400;
   - `GET /v1/preferences` → `{"items":[…]}`, all records.
 - CORS for the web client on every `/v1/*`: `Access-Control-Allow-Origin: *`
-  (auth is a header, no cookies), methods `GET, PUT, OPTIONS`, headers
-  `X-Plex-Token, Content-Type, Accept`, max age a day; a preflight `OPTIONS`
-  gets 204 without a token check.
+  (auth is a header, no cookies), methods `GET, HEAD, PUT, OPTIONS`, headers
+  `X-Plex-Token, Content-Type, Accept, Range`, exposed `Content-Length,
+  Content-Range, Accept-Ranges`, max age a day; a preflight `OPTIONS` gets 204
+  without a token check.
+- `GET /v1/files/{ratingKey}/{partId}[/{name}]` (and `HEAD`) → the original file of
+  that part (`Media[].Part[].id`), with `Range` for seeking; `{name}` is ignored
+  (players like `file.mkv`). Outside the home network Plex without Plex Pass answers
+  the file itself (`/library/parts/…`) with 403 "Downloading requires a Remote Watch
+  Pass or Plex Pass", while lists and artwork still load; the detector has the same
+  library mounted (read-only, same path as Plex) and serves it instead. The path
+  comes from Plex — `/library/metadata/{ratingKey}` asked with the client's token,
+  so the token must see that very item — and never from the request; it is cached
+  per token for 10 minutes (a player reopens the file on every seek). Errors: 403
+  the token can't see the item, 404 no such item or part, 503 the file can't be
+  opened (the disk dropped out), 502 Plex is down.
 - `GET /healthz` → `ok`.
 
 ## Configuration (env)

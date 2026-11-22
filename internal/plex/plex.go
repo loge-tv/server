@@ -4,6 +4,7 @@ package plex
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -33,6 +34,7 @@ type Stream struct {
 }
 
 type Part struct {
+	ID       int64    `json:"id"`
 	File     string   `json:"file"`
 	Size     int64    `json:"size"`
 	Duration int64    `json:"duration"` // ms
@@ -139,6 +141,30 @@ func (c *Client) Item(ctx context.Context, ratingKey string) (*Metadata, error) 
 		return nil, fmt.Errorf("plex: item %s not found", ratingKey)
 	}
 	return &r.MediaContainer.Metadata[0], nil
+}
+
+// ErrNoPart: the item exists but has no part with the asked id.
+var ErrNoPart = errors.New("plex: no such part")
+
+// PartFile returns the path on disk of one part of an item, asking Plex
+// with the client's token: the answer proves the token may see that very
+// item (shared users may have only some libraries). Plex errors come back
+// as *StatusError (401/403 no access, 404 unknown item).
+func (c *Client) PartFile(ctx context.Context, token, ratingKey string, partID int64) (string, error) {
+	var r container
+	if err := c.get(ctx, "/library/metadata/"+url.PathEscape(ratingKey), token, nil, &r); err != nil {
+		return "", err
+	}
+	for _, md := range r.MediaContainer.Metadata {
+		for _, m := range md.Media {
+			for _, p := range m.Part {
+				if p.ID == partID && p.File != "" {
+					return p.File, nil
+				}
+			}
+		}
+	}
+	return "", ErrNoPart
 }
 
 // CheckAccess reports whether token can read this server's libraries.

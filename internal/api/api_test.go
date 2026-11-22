@@ -19,10 +19,15 @@ type fakeAuth struct{ calls int }
 
 func (f *fakeAuth) CheckAccess(_ context.Context, token string) (bool, error) {
 	f.calls++
-	return token == "good", nil
+	return token == "good" || token == "limited", nil
 }
 
 func setup(t *testing.T) (*httptest.Server, *fakeAuth) {
+	t.Helper()
+	return setupWith(t, nil)
+}
+
+func setupWith(t *testing.T, files FileFinder) (*httptest.Server, *fakeAuth) {
 	t.Helper()
 	st, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
 	if err != nil {
@@ -42,7 +47,7 @@ func setup(t *testing.T) (*httptest.Server, *fakeAuth) {
 		t.Fatal(err)
 	}
 	fa := &fakeAuth{}
-	srv := httptest.NewServer((&Server{Store: st, Auth: fa, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	srv := httptest.NewServer((&Server{Store: st, Auth: fa, Files: files, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		TTL: time.Minute, DenyTTL: time.Minute}).Handler())
 	t.Cleanup(srv.Close)
 	return srv, fa
@@ -125,8 +130,9 @@ func TestCORS(t *testing.T) {
 		resp.Body.Close()
 		h := resp.Header
 		if resp.StatusCode != 204 || h.Get("Access-Control-Allow-Origin") != "*" ||
-			h.Get("Access-Control-Allow-Methods") != "GET, PUT, OPTIONS" ||
-			h.Get("Access-Control-Allow-Headers") != "X-Plex-Token, Content-Type, Accept" ||
+			h.Get("Access-Control-Allow-Methods") != "GET, HEAD, PUT, OPTIONS" ||
+			h.Get("Access-Control-Allow-Headers") != "X-Plex-Token, Content-Type, Accept, Range" ||
+			h.Get("Access-Control-Expose-Headers") != "Content-Length, Content-Range, Accept-Ranges" ||
 			h.Get("Access-Control-Max-Age") != "86400" {
 			t.Errorf("preflight %s: %d %v", p, resp.StatusCode, h)
 		}
