@@ -1,4 +1,4 @@
-module github.com/emildeev/skiptv/detector
+module github.com/loge-tv/detector
 
 go 1.27.4
 

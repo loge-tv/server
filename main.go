@@ -16,11 +16,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/emildeev/skiptv/detector/internal/analyzer"
-	"github.com/emildeev/skiptv/detector/internal/api"
-	"github.com/emildeev/skiptv/detector/internal/media"
-	"github.com/emildeev/skiptv/detector/internal/plex"
-	"github.com/emildeev/skiptv/detector/internal/store"
+	"github.com/loge-tv/detector/internal/analyzer"
+	"github.com/loge-tv/detector/internal/api"
+	"github.com/loge-tv/detector/internal/media"
+	"github.com/loge-tv/detector/internal/plex"
+	"github.com/loge-tv/detector/internal/store"
 )
 
 func env(k, def string) string {

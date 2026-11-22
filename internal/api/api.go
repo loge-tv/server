@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/emildeev/skiptv/detector/internal/store"
+	"github.com/loge-tv/detector/internal/store"
 )
 
 // Checker reports whether a Plex token may use our Plex server.

@@ -3,8 +3,8 @@ package analyzer
 import (
 	"testing"
 
-	"github.com/emildeev/skiptv/detector/internal/media"
-	"github.com/emildeev/skiptv/detector/internal/plex"
+	"github.com/loge-tv/detector/internal/media"
+	"github.com/loge-tv/detector/internal/plex"
 )
 
 func ip(i int) *int { return &i }

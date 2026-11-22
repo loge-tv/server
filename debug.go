@@ -7,9 +7,9 @@ import (
 	"math/bits"
 	"sort"
 
-	"github.com/emildeev/skiptv/detector/internal/fingerprint"
-	"github.com/emildeev/skiptv/detector/internal/match"
-	"github.com/emildeev/skiptv/detector/internal/store"
+	"github.com/loge-tv/detector/internal/fingerprint"
+	"github.com/loge-tv/detector/internal/match"
+	"github.com/loge-tv/detector/internal/store"
 )
 
 // debugSegments: detector segments — every item with its segments as TSV

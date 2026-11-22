@@ -1,7 +1,8 @@
-# skiptv-detector
+# Loge detector
 
 Server-side intro and credits detection for a Plex library without Plex Pass.
-SkipTV clients ask it for segments by Plex `ratingKey` and skip them.
+Loge clients ([Apple TV, iPhone, Mac](https://github.com/loge-tv/apple), [Android](https://github.com/loge-tv/android),
+[web](https://github.com/loge-tv/web)) ask it for segments by Plex `ratingKey` and skip them.
 
 ## How it works
 
@@ -94,8 +95,8 @@ uses for Plex. The detector checks it against the Plex server
 ## Build
 
 GitHub Actions (`.github/workflows/detector.yml`) runs `go vet`/`go test` and
-builds `ghcr.io/emildeev/skiptv-detector` for arm64 (Alpine + ffmpeg). Tag
-`detector-v<version>` publishes `:<version>`.
+builds `ghcr.io/loge-tv/detector` for arm64 (Alpine + ffmpeg). Tag
+`v<version>` publishes `:<version>`.
 
 ```bash
 go test ./...

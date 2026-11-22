@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/emildeev/skiptv/detector/internal/media"
+	"github.com/loge-tv/detector/internal/media"
 )
 
 // Plex first reports whole minutes, then the real duration: growth re-opens

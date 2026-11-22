@@ -13,7 +13,7 @@ import (
 
 	_ "github.com/ncruces/go-sqlite3/driver"
 
-	"github.com/emildeev/skiptv/detector/internal/media"
+	"github.com/loge-tv/detector/internal/media"
 )
 
 type Store struct{ db *sql.DB }
