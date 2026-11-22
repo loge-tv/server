@@ -14,24 +14,65 @@ const (
 	lineRowOn   = 4 // steps in a strip row of a text line
 	lineMinBand = 2
 	lineMaxBand = 12
+	lineGap     = 4 // columns without strokes inside a line of text
 )
 
 // Lines returns the strip with the most text lines in a LineW×LineH gray
-// frame, and the top rows of those lines.
-func Lines(f []byte) (strip int, rows []int) {
+// frame, the top rows of those lines and their widths (see lineWidth).
+func Lines(f []byte) (strip int, rows, widths []int) {
 	if len(f) < LineW*LineH {
-		return 0, nil
+		return 0, nil, nil
 	}
 	sw := LineW / lineStrips
+	var bands [][2]int
 	for i := 0; i < lineStrips; i++ {
-		if r := stripLines(f, i*sw, (i+1)*sw); len(r) > len(rows) {
-			strip, rows = i, r
+		if b := stripLines(f, i*sw, (i+1)*sw); len(b) > len(bands) {
+			strip, bands = i, b
 		}
 	}
-	return strip, rows
+	for _, b := range bands {
+		rows = append(rows, b[0])
+		widths = append(widths, lineWidth(f, b[0], b[1], strip*sw, (strip+1)*sw))
+	}
+	return strip, rows, widths
 }
 
-func stripLines(f []byte, x0, x1 int) []int {
+// lineWidth measures the line in rows [y0, y1) that crosses the strip
+// [x0, x1): the longest run of columns with letter strokes, gaps of up to
+// lineGap columns (letter and word spacing) bridged, over the whole width.
+// Text gives tens of columns; lamps, garlands and specks a few each.
+func lineWidth(f []byte, y0, y1, x0, x1 int) int {
+	var on [LineW]bool
+	for y := y0; y < y1; y++ {
+		row := f[y*LineW : (y+1)*LineW]
+		for x := 0; x < LineW-1; x++ {
+			if d := int(row[x+1]) - int(row[x]); d > lineGrad || -d > lineGrad {
+				on[x] = true
+			}
+		}
+	}
+	best := 0
+	for x := 0; x < LineW; {
+		if !on[x] {
+			x++
+			continue
+		}
+		s, last := x, x
+		for x < LineW && x-last <= lineGap+1 {
+			if on[x] {
+				last = x
+			}
+			x++
+		}
+		if last >= x0 && s < x1 {
+			best = max(best, last-s+1)
+		}
+		x = last + 1
+	}
+	return best
+}
+
+func stripLines(f []byte, x0, x1 int) [][2]int {
 	var steps [LineH]int
 	for y := 0; y < LineH; y++ {
 		row := f[y*LineW : (y+1)*LineW]
@@ -43,7 +84,7 @@ func stripLines(f []byte, x0, x1 int) []int {
 		}
 		steps[y] = n
 	}
-	var out []int
+	var out [][2]int
 	for y := 0; y < LineH; {
 		if steps[y] == 0 {
 			y++
@@ -58,10 +99,22 @@ func stripLines(f []byte, x0, x1 int) []int {
 		}
 		// A band touching the frame edge may be cut off: not a line.
 		if h := y - s; h >= lineMinBand && h <= lineMaxBand && on*2 >= h && s > 0 && y < LineH {
-			out = append(out, s)
+			out = append(out, [2]int{s, y})
 		}
 	}
 	return out
+}
+
+// TextLines counts the frame's lines at least width columns wide: text,
+// not a garland of lamps.
+func (f Frame) TextLines(width int) int {
+	n := 0
+	for _, w := range f.Width {
+		if w >= width {
+			n++
+		}
+	}
+	return n
 }
 
 // SameLayout reports whether two keyframes show the same text lines in the

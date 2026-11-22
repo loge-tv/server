@@ -85,6 +85,7 @@ type Frame struct {
 	PBlack int     `json:"b"`
 	Strip  int     `json:"s,omitempty"`
 	Rows   []int   `json:"r,omitempty"`
+	Width  []int   `json:"w,omitempty"` // of each line, LineW wide frame
 }
 
 var blackRe = regexp.MustCompile(`pblack:(\d+).*?\bt:([0-9.]+)`)
@@ -139,8 +140,8 @@ func (f *FFmpeg) EndFrames(ctx context.Context, path string, start, dur float64)
 		}
 	}()
 	type text struct {
-		strip int
-		rows  []int
+		strip       int
+		rows, width []int
 	}
 	var texts []text
 	buf := make([]byte, LineW*LineH)
@@ -149,8 +150,8 @@ func (f *FFmpeg) EndFrames(ctx context.Context, path string, start, dur float64)
 		if _, err := io.ReadFull(r, buf); err != nil {
 			break
 		}
-		s, rows := Lines(buf)
-		texts = append(texts, text{s, rows})
+		s, rows, width := Lines(buf)
+		texts = append(texts, text{s, rows, width})
 	}
 	<-done
 	werr := cmd.Wait()
@@ -168,7 +169,7 @@ func (f *FFmpeg) EndFrames(ctx context.Context, path string, start, dur float64)
 	frames := black[:n]
 	for i := range frames {
 		if len(texts[i].rows) > 0 {
-			frames[i].Strip, frames[i].Rows = texts[i].strip, texts[i].rows
+			frames[i].Strip, frames[i].Rows, frames[i].Width = texts[i].strip, texts[i].rows, texts[i].width
 		}
 	}
 	return frames, nil

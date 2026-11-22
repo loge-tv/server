@@ -44,6 +44,7 @@ type Config struct {
 	BlackLevelShare float64 // share of keyframes at black level for credits on black
 	MaxCreditChecks int     // credits start candidates probed per item
 	TextLines       int     // text lines on a keyframe of credits text
+	TextWidth       int     // ...each at least this wide (columns of media.LineW)
 	TextShare       float64 // share of keyframes with moving text after credits start
 	TextSpan        float64 // ...over this many seconds
 	EndSnap         float64 // credits ending this close to the end run to the end
@@ -66,7 +67,9 @@ type Config struct {
 //	7 — ...or the steady most common level (black kept at 15 by encodes).
 //	8 — credits by moving text lines too (end scans redone with text).
 //	9 — end scans cut short by a read error are redone (The Odyssey).
-const Version = 9
+//	10 — credits text lines must be wide (garlands in Black-ish 7x03 were
+//	     text); end scans with text lines but no widths are redone.
+const Version = 10
 
 func DefaultConfig() Config {
 	return Config{
@@ -77,7 +80,10 @@ func DefaultConfig() Config {
 		BlackPercent: 85, BlackShare: 0.75, BlackSpan: 60,
 		ScenePercent: 50, SceneMin: 10, SceneProbe: 30, SceneSpread: 0.08,
 		BlackLevel: 3.5 / 255, BlackLevelShare: 0.6, MaxCreditChecks: 30,
-		TextLines: 4, TextShare: 0.6, TextSpan: 30, // Totoro: a keyframe per ~10 s
+		// Totoro: a keyframe per ~10 s. Credits lines are 20–200 columns
+		// wide (McConkey's small type ~20–30), garland lamps in a Black-ish
+		// scene 4–20.
+		TextLines: 4, TextWidth: 20, TextShare: 0.6, TextSpan: 30,
 		EndSnap: 15, ScanCut: 120,
 		MaxBitDiff: 6, MaxGap: 3.5,
 		MinFingerprint: 10,
@@ -510,7 +516,7 @@ func (a *Analyzer) endCredits(ctx context.Context, it store.Item, start float64)
 	if err != nil {
 		return store.Segment{}, false, err
 	}
-	tText, okText := TextStart(frames, a.Cfg.TextLines, a.Cfg.TextShare, a.Cfg.TextSpan)
+	tText, okText := TextStart(frames, a.Cfg.TextLines, a.Cfg.TextWidth, a.Cfg.BlackPercent, a.Cfg.TextShare, a.Cfg.TextSpan)
 	okText = okText && end-tText >= a.Cfg.CreditsMin
 	if !okBlack && !okText {
 		return store.Segment{}, false, nil
@@ -580,7 +586,7 @@ func (a *Analyzer) blackStart(ctx context.Context, it store.Item, frames []media
 // colour background (flat picture, checked by ffmpeg) or over a picture
 // (text lines on the keyframes).
 func (a *Analyzer) creditsEnd(ctx context.Context, it store.Item, frames []media.Frame, t, end float64) (float64, error) {
-	for _, s := range SceneRuns(frames, t, end, a.Cfg.ScenePercent, a.Cfg.TextLines, a.Cfg.SceneMin) {
+	for _, s := range SceneRuns(frames, t, end, a.Cfg.ScenePercent, a.Cfg.TextLines, a.Cfg.TextWidth, a.Cfg.SceneMin) {
 		if s-t < a.Cfg.CreditsMin || end-s <= a.Cfg.EndSnap {
 			continue
 		}
@@ -663,17 +669,17 @@ func median(v []float64) float64 {
 }
 
 // SceneRuns returns the starts of runs of picture keyframes (dark share
-// below pct, fewer than lines text lines) after from that last at least min
-// seconds: until the next darker or texty keyframe, or end. frames must be
-// sorted by time.
-func SceneRuns(frames []media.Frame, from, end float64, pct, lines int, min float64) []float64 {
+// below pct, fewer than lines text lines width columns wide) after from that
+// last at least min seconds: until the next darker or texty keyframe, or
+// end. frames must be sorted by time.
+func SceneRuns(frames []media.Frame, from, end float64, pct, lines, width int, min float64) []float64 {
 	var out []float64
 	runStart, n := 0.0, 0
 	for _, f := range frames {
 		if f.T <= from {
 			continue
 		}
-		if f.PBlack < pct && len(f.Rows) < lines {
+		if f.PBlack < pct && f.TextLines(width) < lines {
 			if n == 0 {
 				runStart = f.T
 			}
@@ -694,13 +700,19 @@ func SceneRuns(frames []media.Frame, from, end float64, pct, lines int, min floa
 // ScanValid reports whether a cached end scan can be reused for a scan from
 // start of file: same file (scans cached before 0.2.2 carry no state), a
 // window that reaches the end, and frames up to the end — a scan cut short
-// by a read error (a disk that dropped out) is redone.
+// by a read error (a disk that dropped out) is redone, as is a scan whose
+// text lines carry no widths.
 func ScanValid(sc store.EndScan, have bool, start float64, file media.FileState, dur, slack float64) bool {
 	if !have || stale(sc.Start, start) {
 		return false
 	}
 	if sc.File != (media.FileState{}) && sc.File != file {
 		return false
+	}
+	for _, f := range sc.Frames {
+		if len(f.Width) != len(f.Rows) {
+			return false // before 0.3.1: text lines without their widths
+		}
 	}
 	return !cut(sc.Frames, dur, slack)
 }
@@ -736,22 +748,23 @@ func BlackStart(frames []media.Frame, pct int, share, span float64) (float64, bo
 // BlackStarts returns every keyframe time BlackStart would accept, in order.
 func BlackStarts(frames []media.Frame, pct int, share, span float64) []float64 {
 	sort.Slice(frames, func(i, j int) bool { return frames[i].T < frames[j].T })
-	return runStarts(frames, func(i int) bool { return frames[i].PBlack >= pct }, share, span)
+	black := func(i int) bool { return frames[i].PBlack >= pct }
+	return runStarts(frames, black, black, share, span)
 }
 
-// runStarts returns the times of keyframes that hit, followed within span
-// seconds (or to the end of the scan) by at least share hits. frames must
-// be sorted.
-func runStarts(frames []media.Frame, hit func(i int) bool, share, span float64) []float64 {
+// runStarts returns the times of keyframes that start a run (first),
+// followed within span seconds (or to the end of the scan) by at least
+// share keyframes that keep it going (more). frames must be sorted.
+func runStarts(frames []media.Frame, first, more func(i int) bool, share, span float64) []float64 {
 	var out []float64
 	for i, f := range frames {
-		if !hit(i) {
+		if !first(i) {
 			continue
 		}
 		total, hits := 0, 0
 		for j := i; j < len(frames) && frames[j].T <= f.T+span; j++ {
 			total++
-			if hit(j) {
+			if more(j) {
 				hits++
 			}
 		}
@@ -764,17 +777,21 @@ func runStarts(frames []media.Frame, hit func(i int) bool, share, span float64) 
 
 // TextStart returns the first keyframe of a run of credits text: at least
 // share of the keyframes within span seconds show lines or more text lines
-// that moved since the neighbouring keyframe (scrolled or replaced). Signs,
-// logos and watermarks stay put. frames must be sorted.
-func TextStart(frames []media.Frame, lines int, share, span float64) (float64, bool) {
+// (at least width columns wide) that moved since the neighbouring keyframe
+// (scrolled or replaced). Signs, logos and watermarks stay put; garlands
+// and lamps in a scene are rows of dots, too narrow. Black keyframes
+// (dark share ≥ black: fades between cards) keep the run going but don't
+// start it. frames must be sorted.
+func TextStart(frames []media.Frame, lines, width, black int, share, span float64) (float64, bool) {
 	hit := func(i int) bool {
 		f := frames[i]
-		if len(f.Rows) < lines {
+		if f.TextLines(width) < lines {
 			return false
 		}
 		return i > 0 && !media.SameLayout(f, frames[i-1]) || i+1 < len(frames) && !media.SameLayout(f, frames[i+1])
 	}
-	if s := runStarts(frames, hit, share, span); len(s) > 0 {
+	more := func(i int) bool { return hit(i) || frames[i].PBlack >= black }
+	if s := runStarts(frames, hit, more, share, span); len(s) > 0 {
 		return s[0], true
 	}
 	return 0, false

@@ -66,12 +66,43 @@ func debugFrames(args []string) error {
 	fmt.Printf("# from %.1f, file size %d mtime %d\n", sc.Start, sc.File.Size, sc.File.MTime)
 	from, _ := strconv.ParseFloat(args[1], 64)
 	to, _ := strconv.ParseFloat(args[2], 64)
+	printFrames(frames, from, to)
+	return nil
+}
+
+func printFrames(frames []media.Frame, from, to float64) {
 	sort.Slice(frames, func(i, j int) bool { return frames[i].T < frames[j].T })
 	for _, f := range frames {
 		if f.T >= from && f.T <= to {
-			fmt.Printf("%.1f\t%d\t%d\t%d\t%v\n", f.T, f.PBlack, len(f.Rows), f.Strip, f.Rows)
+			fmt.Printf("%.1f\t%d\t%d\t%d\t%v\t%v\n", f.T, f.PBlack, len(f.Rows), f.Strip, f.Rows, f.Width)
 		}
 	}
+}
+
+// debugScan: detector scan <ratingKey> <from> <to> — decodes the keyframes
+// in [from, to] of the item's file now (nothing is stored) and prints them
+// like frames.
+func debugScan(args []string) error {
+	if len(args) != 3 {
+		return errors.New("usage: detector scan <ratingKey> <from> <to>")
+	}
+	st, err := store.Open(env("DB_PATH", "/data/detector.db"))
+	if err != nil {
+		return err
+	}
+	it, ok, err := st.Item(context.Background(), args[0])
+	st.Close()
+	if err != nil || !ok {
+		return fmt.Errorf("no item: %v", err)
+	}
+	from, _ := strconv.ParseFloat(args[1], 64)
+	to, _ := strconv.ParseFloat(args[2], 64)
+	ff := &media.FFmpeg{Bin: env("FFMPEG", "ffmpeg"), Nice: 15, Timeout: 15 * time.Minute}
+	frames, err := ff.EndFrames(context.Background(), it.Path, from, to-from)
+	if err != nil {
+		return err
+	}
+	printFrames(frames, from, to)
 	return nil
 }
 

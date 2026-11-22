@@ -39,7 +39,10 @@ Plex Pass refuses there.
   ending of the film wanders at 4–9 and is skipped for the next candidate.
 - **Credits by text**: the same keyframes (320×180 gray) are searched for
   text lines — bands 2–12 rows high with many sharp luma steps, per quarter of
-  the width, so credits beside a picture count too. Credits text is ≥ 4 lines
+  the width, so credits beside a picture count too. A line counts as text
+  when it is ≥ 20 columns wide (strokes with gaps of ≤ 4 columns, measured
+  over the whole width): credits give 20–200, garlands and lamps in a scene
+  are rows of dots 4–20 wide (Black-ish 7x03). Credits text is ≥ 4 such lines
   that moved since the neighbouring keyframe (scrolled or a new card): signs,
   logos and watermarks stay put. Credits start at the first such keyframe
   followed by ≥ 60 % of them for 30 s. Of the text and the black start the
@@ -60,7 +63,9 @@ Plex Pass refuses there.
   the new end are decoded again. Bumping `analyzer.Version` recomputes all
   results from the caches (a minute, no ffmpeg).
 - `detector segments` (in the pod) dumps every item with its segments as TSV,
-  to diff results before and after a change.
+  to diff results before and after a change; `detector frames <key> <from>
+  <to>` prints the cached end scan keyframes, `detector scan <key> <from>
+  <to>` decodes them now (nothing stored).
 - One file at a time, ffmpeg under `nice`, `-threads 1`, capped probing. Before
   every ffmpeg run it checks the node's `MemAvailable` in VictoriaMetrics and
   waits while it's below `MIN_MEM_AVAILABLE_MB`.

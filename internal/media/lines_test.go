@@ -31,7 +31,7 @@ func TestLines(t *testing.T) {
 	for i := 0; i < 6; i++ {
 		text(f, 20+i*25, 7, 100, 220)
 	}
-	if _, rows := Lines(f); len(rows) != 6 || rows[0] != 20 {
+	if _, rows, _ := Lines(f); len(rows) != 6 || rows[0] != 20 {
 		t.Fatalf("credits on black: %v", rows)
 	}
 	// Credits in a panel beside a textured picture (left half).
@@ -45,7 +45,7 @@ func TestLines(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		text(f, 30+i*20, 6, 250, 310)
 	}
-	if strip, rows := Lines(f); len(rows) != 5 || strip != 3 {
+	if strip, rows, _ := Lines(f); len(rows) != 5 || strip != 3 {
 		t.Fatalf("credits beside a picture: strip %d rows %v", strip, rows)
 	}
 	// A textured picture alone: every row has steps, no gaps, no lines.
@@ -54,7 +54,7 @@ func TestLines(t *testing.T) {
 			f[y*LineW+x] = byte(rng.Intn(256))
 		}
 	}
-	if _, rows := Lines(f); len(rows) != 0 {
+	if _, rows, _ := Lines(f); len(rows) != 0 {
 		t.Fatalf("picture taken for text: %v", rows)
 	}
 	// A flat dark frame with one bright lamp: a blob, not a line.
@@ -64,8 +64,42 @@ func TestLines(t *testing.T) {
 			f[y*LineW+x] = 250
 		}
 	}
-	if _, rows := Lines(f); len(rows) != 0 {
+	if _, rows, _ := Lines(f); len(rows) != 0 {
 		t.Fatalf("lamp taken for text: %v", rows)
+	}
+}
+
+func TestLineWidth(t *testing.T) {
+	// Two words of credits: 40 + 32 columns, a word space between.
+	f := frame(0)
+	text(f, 50, 7, 100, 140)
+	text(f, 50, 7, 141, 173)
+	// A garland: lamps 2 px wide every 9 px, rows that look like lines.
+	for i := 0; i < 5; i++ {
+		y := 100 + 15*i
+		for x := 5 + 3*i; x < 75; x += 9 {
+			for r := y; r < y+4; r++ {
+				f[r*LineW+x], f[r*LineW+x+1] = 250, 250
+			}
+		}
+	}
+	// The strip with most lines is the garland's: its lines are narrow.
+	strip, rows, widths := Lines(f)
+	if strip != 0 || len(rows) != 5 || len(widths) != 5 {
+		t.Fatalf("strip %d rows %v widths %v", strip, rows, widths)
+	}
+	if fr := (Frame{Rows: rows, Width: widths}); fr.TextLines(20) != 0 {
+		t.Fatalf("garland lines counted as text: widths %v", widths)
+	}
+	// The words alone, in their own strip.
+	g := frame(0)
+	for i := 0; i < 4; i++ {
+		text(g, 20+25*i, 7, 100, 140)
+		text(g, 20+25*i, 7, 141, 173)
+	}
+	_, _, widths = Lines(g)
+	if fr := (Frame{Width: widths}); fr.TextLines(20) != 4 || widths[0] < 70 {
+		t.Fatalf("credits widths %v", widths)
 	}
 }
 
