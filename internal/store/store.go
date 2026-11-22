@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS fingerprints (
 	data       BLOB NOT NULL,
 	PRIMARY KEY (rating_key, part)
 );
-CREATE TABLE IF NOT EXISTS black_scans (
+CREATE TABLE IF NOT EXISTS end_scans (
 	rating_key TEXT PRIMARY KEY,
 	start      REAL NOT NULL,
 	frames     TEXT NOT NULL            -- JSON []media.Frame
@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS luma_probes (
 	PRIMARY KEY (rating_key, start)
 );
 DROP TABLE IF EXISTS scene_checks;
+DROP TABLE IF EXISTS black_scans; -- before 0.2.0: no text lines, rescanned
 DROP TABLE IF EXISTS luma_checks; -- 0.1.5, normalised by the content's bit depth
 -- Client settings per show or movie (ratingKey), opaque JSON object.
 -- Show keys are not in items, so library sync never touches this table.
@@ -185,7 +186,7 @@ func (s *Store) UpsertItem(ctx context.Context, it Item) error {
 			it.Path, it.Size, it.Duration, it.Audio)
 	case err != nil:
 	case path != it.Path || size != it.Size:
-		for _, q := range []string{`DELETE FROM fingerprints WHERE rating_key=?`, `DELETE FROM black_scans WHERE rating_key=?`,
+		for _, q := range []string{`DELETE FROM fingerprints WHERE rating_key=?`, `DELETE FROM end_scans WHERE rating_key=?`,
 			`DELETE FROM luma_probes WHERE rating_key=?`, `DELETE FROM segments WHERE rating_key=?`} {
 			if _, err = tx.ExecContext(ctx, q, it.RatingKey); err != nil {
 				return err
@@ -220,7 +221,7 @@ func (s *Store) SetAudio(ctx context.Context, key, spec string) error {
 func (s *Store) DeleteItems(ctx context.Context, keys []string) error {
 	for _, k := range keys {
 		for _, q := range []string{`DELETE FROM items WHERE rating_key=?`, `DELETE FROM fingerprints WHERE rating_key=?`,
-			`DELETE FROM black_scans WHERE rating_key=?`, `DELETE FROM luma_probes WHERE rating_key=?`,
+			`DELETE FROM end_scans WHERE rating_key=?`, `DELETE FROM luma_probes WHERE rating_key=?`,
 			`DELETE FROM segments WHERE rating_key=?`} {
 			if _, err := s.db.ExecContext(ctx, q, k); err != nil {
 				return err
@@ -259,20 +260,20 @@ func (s *Store) Fingerprint(ctx context.Context, key, part string) (Fingerprint,
 	return fp, err == nil, err
 }
 
-func (s *Store) PutBlackScan(ctx context.Context, key string, start float64, frames []media.Frame) error {
+func (s *Store) PutEndScan(ctx context.Context, key string, start float64, frames []media.Frame) error {
 	b, err := json.Marshal(frames)
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `INSERT OR REPLACE INTO black_scans (rating_key, start, frames) VALUES (?,?,?)`, key, start, string(b))
+	_, err = s.db.ExecContext(ctx, `INSERT OR REPLACE INTO end_scans (rating_key, start, frames) VALUES (?,?,?)`, key, start, string(b))
 	return err
 }
 
-// BlackScan returns the cached scan and the second it started at.
-func (s *Store) BlackScan(ctx context.Context, key string) ([]media.Frame, float64, bool, error) {
+// EndScan returns the cached scan and the second it started at.
+func (s *Store) EndScan(ctx context.Context, key string) ([]media.Frame, float64, bool, error) {
 	var raw string
 	var start float64
-	err := s.db.QueryRowContext(ctx, `SELECT start, frames FROM black_scans WHERE rating_key=?`, key).Scan(&start, &raw)
+	err := s.db.QueryRowContext(ctx, `SELECT start, frames FROM end_scans WHERE rating_key=?`, key).Scan(&start, &raw)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, 0, false, nil
 	}
@@ -396,6 +397,7 @@ type Stats struct {
 	EpisodesIntro    int `json:"episodesWithIntro"`
 	EpisodesCredits  int `json:"episodesWithCredits"`
 	CreditsByBlack   int `json:"creditsFromBlackFrames"`
+	CreditsByText    int `json:"creditsFromText"`
 	Failed           int `json:"failed"`
 }
 
@@ -410,9 +412,10 @@ func (s *Store) Stats(ctx context.Context) (Stats, error) {
 		(SELECT count(*) FROM segments s JOIN items i USING(rating_key) WHERE i.kind='episode' AND s.type='intro'),
 		(SELECT count(*) FROM segments s JOIN items i USING(rating_key) WHERE i.kind='episode' AND s.type='credits'),
 		(SELECT count(*) FROM segments WHERE type='credits' AND source='blackframe'),
+		(SELECT count(*) FROM segments WHERE type='credits' AND source='text'),
 		(SELECT count(*) FROM items WHERE analyzed=0 AND attempts>0)`).Scan(
 		&st.Movies, &st.MoviesAnalyzed, &st.MoviesCredits, &st.Episodes, &st.EpisodesAnalyzed,
-		&st.EpisodesIntro, &st.EpisodesCredits, &st.CreditsByBlack, &st.Failed)
+		&st.EpisodesIntro, &st.EpisodesCredits, &st.CreditsByBlack, &st.CreditsByText, &st.Failed)
 	return st, err
 }
 

@@ -35,6 +35,17 @@ Loge clients ([Apple TV, iPhone, Mac](https://github.com/loge-tv/apple), [Androi
   30 s of keyframes is ≤ 3 (credits give 0–2) — or, in encodes that keep
   black at ~15 and never go lower, the same value frame after frame; a dark
   ending of the film wanders at 4–9 and is skipped for the next candidate.
+- **Credits by text**: the same keyframes (320×180 gray) are searched for
+  text lines — bands 2–12 rows high with many sharp luma steps, per quarter of
+  the width, so credits beside a picture count too. Credits text is ≥ 4 lines
+  that moved since the neighbouring keyframe (scrolled or a new card): signs,
+  logos and watermarks stay put. Credits start at the first such keyframe
+  followed by ≥ 60 % of them for 30 s. Of the text and the black start the
+  earlier wins, unless its credits end at a scene before the later one.
+  Keyframes with ≥ 4 text lines are never a scene after the credits. Sparse
+  1–2-line cards on black are left to the black frames.
+- A movie's end scan uses the file's own duration (ffprobe) when Plex reports
+  a shorter one (Kraven .m2ts: 1094 s of 7616).
 - Failed or empty decodes are not cached as results; an item is retried up to
   3 times (on later passes).
 - Plex first reports a rough duration (whole minutes) for new files. When it

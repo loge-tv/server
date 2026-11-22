@@ -1,0 +1,83 @@
+package media
+
+import (
+	"math/rand"
+	"testing"
+)
+
+func frame(fill byte) []byte {
+	f := make([]byte, LineW*LineH)
+	for i := range f {
+		f[i] = fill
+	}
+	return f
+}
+
+// text draws a line of "letters" (bright strokes 2 px wide, 2 px apart)
+// h rows high from row y, columns x0..x1.
+func text(f []byte, y, h, x0, x1 int) {
+	for r := y; r < y+h; r++ {
+		for x := x0; x < x1; x++ {
+			if x%4 < 2 {
+				f[r*LineW+x] = 230
+			}
+		}
+	}
+}
+
+func TestLines(t *testing.T) {
+	// Credits on black: 6 lines centred.
+	f := frame(0)
+	for i := 0; i < 6; i++ {
+		text(f, 20+i*25, 7, 100, 220)
+	}
+	if _, rows := Lines(f); len(rows) != 6 || rows[0] != 20 {
+		t.Fatalf("credits on black: %v", rows)
+	}
+	// Credits in a panel beside a textured picture (left half).
+	rng := rand.New(rand.NewSource(1))
+	f = frame(40)
+	for y := 0; y < LineH; y++ {
+		for x := 0; x < 160; x++ {
+			f[y*LineW+x] = byte(rng.Intn(256))
+		}
+	}
+	for i := 0; i < 5; i++ {
+		text(f, 30+i*20, 6, 250, 310)
+	}
+	if strip, rows := Lines(f); len(rows) != 5 || strip != 3 {
+		t.Fatalf("credits beside a picture: strip %d rows %v", strip, rows)
+	}
+	// A textured picture alone: every row has steps, no gaps, no lines.
+	for y := 0; y < LineH; y++ {
+		for x := 160; x < LineW; x++ {
+			f[y*LineW+x] = byte(rng.Intn(256))
+		}
+	}
+	if _, rows := Lines(f); len(rows) != 0 {
+		t.Fatalf("picture taken for text: %v", rows)
+	}
+	// A flat dark frame with one bright lamp: a blob, not a line.
+	f = frame(10)
+	for y := 80; y < 86; y++ {
+		for x := 150; x < 156; x++ {
+			f[y*LineW+x] = 250
+		}
+	}
+	if _, rows := Lines(f); len(rows) != 0 {
+		t.Fatalf("lamp taken for text: %v", rows)
+	}
+}
+
+func TestSameLayout(t *testing.T) {
+	a := Frame{Strip: 1, Rows: []int{10, 30, 50, 70}}
+	if !SameLayout(a, Frame{Strip: 1, Rows: []int{11, 30, 49, 70}}) {
+		t.Error("jitter of a row taken for movement")
+	}
+	if SameLayout(a, Frame{Strip: 1, Rows: []int{1, 21, 41, 61}}) {
+		t.Error("scroll taken for a static layout")
+	}
+	if SameLayout(a, Frame{Strip: 2, Rows: a.Rows}) {
+		t.Error("another strip taken for the same layout")
+	}
+}

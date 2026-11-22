@@ -4,13 +4,74 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/bits"
+	"os"
 	"sort"
+	"strconv"
+	"time"
 
+	"github.com/loge-tv/detector/internal/analyzer"
 	"github.com/loge-tv/detector/internal/fingerprint"
 	"github.com/loge-tv/detector/internal/match"
+	"github.com/loge-tv/detector/internal/media"
 	"github.com/loge-tv/detector/internal/store"
 )
+
+// debugCredits: detector credits <ratingKey>... — finds end credits from
+// the end scan (scanning if needed, cached in DB_PATH) and prints them.
+func debugCredits(args []string) error {
+	st, err := store.Open(env("DB_PATH", "/data/detector.db"))
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	ctx := context.Background()
+	an := &analyzer.Analyzer{
+		Cfg: analyzer.DefaultConfig(), Store: st,
+		FF:    &media.FFmpeg{Bin: env("FFMPEG", "ffmpeg"), Nice: 15, Timeout: 15 * time.Minute},
+		Guard: func(context.Context) error { return nil },
+		Log:   slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel()})),
+	}
+	for _, k := range args {
+		it, ok, err := st.Item(ctx, k)
+		if err != nil || !ok {
+			fmt.Printf("%s: not found %v\n", k, err)
+			continue
+		}
+		t0 := time.Now()
+		s, ok, err := an.EndCredits(ctx, it)
+		fmt.Printf("%s\t%s %02d %02d %s\tfound=%v\t%.1f–%.1f\t%s\t%v\t%s\n", k, it.ShowTitle, it.Season, it.Episode, it.Title,
+			ok, s.Start, s.End, s.Source, err, time.Since(t0).Round(time.Second))
+	}
+	return nil
+}
+
+// debugFrames: detector frames <ratingKey> <from> <to> — the cached end
+// scan keyframes in [from, to]: time, black percent, text lines and rows.
+func debugFrames(args []string) error {
+	if len(args) != 3 {
+		return errors.New("usage: detector frames <ratingKey> <from> <to>")
+	}
+	st, err := store.Open(env("DB_PATH", "/data/detector.db"))
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	frames, _, ok, err := st.EndScan(context.Background(), args[0])
+	if err != nil || !ok {
+		return fmt.Errorf("no end scan: %v", err)
+	}
+	from, _ := strconv.ParseFloat(args[1], 64)
+	to, _ := strconv.ParseFloat(args[2], 64)
+	sort.Slice(frames, func(i, j int) bool { return frames[i].T < frames[j].T })
+	for _, f := range frames {
+		if f.T >= from && f.T <= to {
+			fmt.Printf("%.1f\t%d\t%d\t%d\t%v\n", f.T, f.PBlack, len(f.Rows), f.Strip, f.Rows)
+		}
+	}
+	return nil
+}
 
 // debugSegments: detector segments — every item with its segments as TSV
 // (show, season, episode, title, key, type, start, end, source), sorted, to

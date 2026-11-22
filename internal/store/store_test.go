@@ -21,7 +21,7 @@ func TestUpsertDurationGrowth(t *testing.T) {
 	if err := st.UpsertItem(ctx, it); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.PutBlackScan(ctx, "1", 810, []media.Frame{{T: 1250, PBlack: 99}}); err != nil {
+	if err := st.PutEndScan(ctx, "1", 810, []media.Frame{{T: 1250, PBlack: 99}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.SetResult(ctx, "1", 2, nil); err != nil {
@@ -44,7 +44,7 @@ func TestUpsertDurationGrowth(t *testing.T) {
 	check(1258, true)  // shrank
 	check(1262, true)  // wobble
 	check(1284, false) // grew
-	if _, start, ok, err := st.BlackScan(ctx, "1"); err != nil || !ok || start != 810 {
-		t.Fatalf("black scan: start %v ok %v err %v", start, ok, err)
+	if _, start, ok, err := st.EndScan(ctx, "1"); err != nil || !ok || start != 810 {
+		t.Fatalf("end scan: start %v ok %v err %v", start, ok, err)
 	}
 }

@@ -43,6 +43,9 @@ type Config struct {
 	BlackLevel      float64 // 10th luma percentile (0–1, gray) at most this is black
 	BlackLevelShare float64 // share of keyframes at black level for credits on black
 	MaxCreditChecks int     // credits start candidates probed per item
+	TextLines       int     // text lines on a keyframe of credits text
+	TextShare       float64 // share of keyframes with moving text after credits start
+	TextSpan        float64 // ...over this many seconds
 	EndSnap         float64 // credits ending this close to the end run to the end
 	MaxBitDiff      int
 	MaxGap          float64
@@ -60,7 +63,8 @@ type Config struct {
 //	5 — luma probes fixed (were scaled by the content's bit depth).
 //	6 — black level is absolute (≤ 3 of 255), not relative to the lowest.
 //	7 — ...or the steady most common level (black kept at 15 by encodes).
-const Version = 7
+//	8 — credits by moving text lines too (end scans redone with text).
+const Version = 8
 
 func DefaultConfig() Config {
 	return Config{
@@ -71,6 +75,7 @@ func DefaultConfig() Config {
 		BlackPercent: 85, BlackShare: 0.75, BlackSpan: 60,
 		ScenePercent: 50, SceneMin: 10, SceneProbe: 30, SceneSpread: 0.08,
 		BlackLevel: 3.5 / 255, BlackLevelShare: 0.6, MaxCreditChecks: 30,
+		TextLines: 4, TextShare: 0.6, TextSpan: 30, // Totoro: a keyframe per ~10 s
 		EndSnap:    15,
 		MaxBitDiff: 6, MaxGap: 3.5,
 		MinFingerprint: 10,
@@ -393,12 +398,12 @@ func (a *Analyzer) season(ctx context.Context, eps []store.Item) error {
 			nCred++
 		} else {
 			start := a.creditsStart(l.item.Duration)
-			s, ok, err := a.blackCredits(ctx, l.item, start)
+			s, ok, err := a.endCredits(ctx, l.item, start)
 			if err != nil {
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
-				a.Log.Warn("blackframe", "key", l.item.RatingKey, "path", l.item.Path, "err", err)
+				a.Log.Warn("end scan", "key", l.item.RatingKey, "path", l.item.Path, "err", err)
 			} else if ok {
 				segs = append(segs, s)
 				nBlack++
@@ -438,10 +443,11 @@ func sec(points int) float64 {
 	return float64(int(float64(points)*fingerprint.PointDuration*10+0.5)) / 10
 }
 
-// blackCredits scans (or reuses a scan of) keyframes from start to the end
-// and returns credits starting at the first sustained run of black frames.
-func (a *Analyzer) blackCredits(ctx context.Context, it store.Item, start float64) (store.Segment, bool, error) {
-	frames, from, have, err := a.Store.BlackScan(ctx, it.RatingKey)
+// endCredits scans (or reuses a scan of) keyframes from start to the end
+// and returns credits starting at the first sustained run of black frames
+// or of moving text, whichever comes first.
+func (a *Analyzer) endCredits(ctx context.Context, it store.Item, start float64) (store.Segment, bool, error) {
+	frames, from, have, err := a.Store.EndScan(ctx, it.RatingKey)
 	if err != nil {
 		return store.Segment{}, false, err
 	}
@@ -450,24 +456,65 @@ func (a *Analyzer) blackCredits(ctx context.Context, it store.Item, start float6
 			return store.Segment{}, false, err
 		}
 		t0 := time.Now()
-		frames, err = a.FF.BlackFrames(ctx, it.Path, start, it.Duration-start)
+		frames, err = a.FF.EndFrames(ctx, it.Path, start, it.Duration-start)
 		if err != nil {
 			return store.Segment{}, false, err
 		}
-		a.Log.Debug("blackframe scan", "key", it.RatingKey, "frames", len(frames), "took", time.Since(t0).Round(time.Second))
-		if err := a.Store.PutBlackScan(ctx, it.RatingKey, start, frames); err != nil {
+		a.Log.Debug("end scan", "key", it.RatingKey, "frames", len(frames), "took", time.Since(t0).Round(time.Second))
+		if err := a.Store.PutEndScan(ctx, it.RatingKey, start, frames); err != nil {
 			return store.Segment{}, false, err
 		}
 	}
+	if len(frames) == 0 {
+		return store.Segment{}, false, nil
+	}
+	sort.Slice(frames, func(i, j int) bool { return frames[i].T < frames[j].T })
 	// Plex sometimes under-reports the duration (Kraven .m2ts: 1094 s of
 	// 7616): the scan itself shows how long the file is.
-	end := it.Duration
-	if len(frames) > 0 {
-		end = max(end, frames[len(frames)-1].T)
+	end := max(it.Duration, frames[len(frames)-1].T)
+
+	tBlack, okBlack, err := a.blackStart(ctx, it, frames, end)
+	if err != nil {
+		return store.Segment{}, false, err
 	}
-	// A dark ending of the film is not credits on black: on black the
-	// lowest luma stays at the black level (checked by ffmpeg).
-	t, ok, rejected, checks := 0.0, false, math.Inf(-1), 0
+	tText, okText := TextStart(frames, a.Cfg.TextLines, a.Cfg.TextShare, a.Cfg.TextSpan)
+	okText = okText && end-tText >= a.Cfg.CreditsMin
+	if !okBlack && !okText {
+		return store.Segment{}, false, nil
+	}
+	type cand struct {
+		t   float64
+		src string
+	}
+	var cs []cand
+	if okText {
+		cs = append(cs, cand{tText, "text"})
+	}
+	if okBlack {
+		cs = append(cs, cand{tBlack, "blackframe"})
+	}
+	sort.Slice(cs, func(i, j int) bool { return cs[i].t < cs[j].t })
+	// The earlier start wins unless a scene separates it from the later one
+	// (then the earlier was something else: a sign, a dark shot).
+	c := cs[0]
+	e, err := a.creditsEnd(ctx, it, frames, c.t, end)
+	if err != nil {
+		return store.Segment{}, false, err
+	}
+	if len(cs) == 2 && e < cs[1].t {
+		c = cs[1]
+		if e, err = a.creditsEnd(ctx, it, frames, c.t, end); err != nil {
+			return store.Segment{}, false, err
+		}
+	}
+	return store.Segment{Type: "credits", Start: float64(int(c.t*10)) / 10, End: e, Source: c.src}, true, nil
+}
+
+// blackStart returns the first sustained run of black keyframes that is
+// credits on black, not a dark ending of the film: on black the lowest
+// luma stays at the black level (checked by ffmpeg).
+func (a *Analyzer) blackStart(ctx context.Context, it store.Item, frames []media.Frame, end float64) (float64, bool, error) {
+	rejected, checks := math.Inf(-1), 0
 	for _, c := range BlackStarts(frames, a.Cfg.BlackPercent, a.Cfg.BlackShare, a.Cfg.BlackSpan) {
 		if end-c < a.Cfg.CreditsMin || checks >= a.Cfg.MaxCreditChecks {
 			break
@@ -479,44 +526,44 @@ func (a *Analyzer) blackCredits(ctx context.Context, it store.Item, start float6
 		l, err := a.luma(ctx, it, c)
 		if err != nil {
 			if ctx.Err() != nil {
-				return store.Segment{}, false, ctx.Err()
+				return 0, false, ctx.Err()
 			}
 			a.Log.Warn("credits check", "key", it.RatingKey, "at", c, "err", err)
-			t, ok = c, true // as before the check
-			break
+			return c, true, nil // as before the check
 		}
-		if share := OnBlackLevel(l, a.Cfg.BlackLevel); share >= a.Cfg.BlackLevelShare {
-			t, ok = c, true
-			break
-		} else {
-			a.Log.Info("dark picture, not credits", "key", it.RatingKey, "at", c, "share", share)
+		share := OnBlackLevel(l, a.Cfg.BlackLevel)
+		if share >= a.Cfg.BlackLevelShare {
+			return c, true, nil
 		}
+		a.Log.Info("dark picture, not credits", "key", it.RatingKey, "at", c, "share", share)
 		rejected = c
 	}
-	if !ok {
-		return store.Segment{}, false, nil
-	}
-	// A scene after the credits (post-credits, mid-credits) is not skipped.
-	// Studio logos in the last EndSnap seconds are not scenes, and neither
-	// are credits on a colour background (flat picture, checked by ffmpeg).
-	for _, s := range SceneRuns(frames, t, end, a.Cfg.ScenePercent, a.Cfg.SceneMin) {
+	return 0, false, nil
+}
+
+// creditsEnd returns where credits starting at t end: at a scene after
+// them (post-credits, mid-credits) or at the end of the file. Studio logos
+// in the last EndSnap seconds are not scenes, and neither are credits on a
+// colour background (flat picture, checked by ffmpeg) or over a picture
+// (text lines on the keyframes).
+func (a *Analyzer) creditsEnd(ctx context.Context, it store.Item, frames []media.Frame, t, end float64) (float64, error) {
+	for _, s := range SceneRuns(frames, t, end, a.Cfg.ScenePercent, a.Cfg.TextLines, a.Cfg.SceneMin) {
 		if s-t < a.Cfg.CreditsMin || end-s <= a.Cfg.EndSnap {
 			continue
 		}
 		scene, err := a.isScene(ctx, it, s)
 		if err != nil {
 			if ctx.Err() != nil {
-				return store.Segment{}, false, ctx.Err()
+				return 0, ctx.Err()
 			}
 			a.Log.Warn("scene check", "key", it.RatingKey, "at", s, "err", err)
 			continue
 		}
 		if scene {
-			end = float64(int(s*10)) / 10
-			break
+			return float64(int(s*10)) / 10, nil
 		}
 	}
-	return store.Segment{Type: "credits", Start: float64(int(t*10)) / 10, End: end, Source: "blackframe"}, true, nil
+	return end, nil
 }
 
 // luma probes (or reuses a probe of) SceneProbe seconds of keyframes from s.
@@ -583,16 +630,17 @@ func median(v []float64) float64 {
 }
 
 // SceneRuns returns the starts of runs of picture keyframes (dark share
-// below pct) after from that last at least min seconds: until the next
-// darker keyframe, or end. frames must be sorted by time.
-func SceneRuns(frames []media.Frame, from, end float64, pct int, min float64) []float64 {
+// below pct, fewer than lines text lines) after from that last at least min
+// seconds: until the next darker or texty keyframe, or end. frames must be
+// sorted by time.
+func SceneRuns(frames []media.Frame, from, end float64, pct, lines int, min float64) []float64 {
 	var out []float64
 	runStart, n := 0.0, 0
 	for _, f := range frames {
 		if f.T <= from {
 			continue
 		}
-		if f.PBlack < pct {
+		if f.PBlack < pct && len(f.Rows) < lines {
 			if n == 0 {
 				runStart = f.T
 			}
@@ -632,32 +680,83 @@ func BlackStart(frames []media.Frame, pct int, share, span float64) (float64, bo
 // BlackStarts returns every keyframe time BlackStart would accept, in order.
 func BlackStarts(frames []media.Frame, pct int, share, span float64) []float64 {
 	sort.Slice(frames, func(i, j int) bool { return frames[i].T < frames[j].T })
+	return runStarts(frames, func(i int) bool { return frames[i].PBlack >= pct }, share, span)
+}
+
+// runStarts returns the times of keyframes that hit, followed within span
+// seconds (or to the end of the scan) by at least share hits. frames must
+// be sorted.
+func runStarts(frames []media.Frame, hit func(i int) bool, share, span float64) []float64 {
 	var out []float64
 	for i, f := range frames {
-		if f.PBlack < pct {
+		if !hit(i) {
 			continue
 		}
-		total, black := 0, 0
-		for _, g := range frames[i:] {
-			if g.T > f.T+span {
-				break
-			}
+		total, hits := 0, 0
+		for j := i; j < len(frames) && frames[j].T <= f.T+span; j++ {
 			total++
-			if g.PBlack >= pct {
-				black++
+			if hit(j) {
+				hits++
 			}
 		}
-		if total >= 3 && float64(black) >= share*float64(total) {
+		if total >= 3 && float64(hits) >= share*float64(total) {
 			out = append(out, f.T)
 		}
 	}
 	return out
 }
 
+// TextStart returns the first keyframe of a run of credits text: at least
+// share of the keyframes within span seconds show lines or more text lines
+// that moved since the neighbouring keyframe (scrolled or replaced). Signs,
+// logos and watermarks stay put. frames must be sorted.
+func TextStart(frames []media.Frame, lines int, share, span float64) (float64, bool) {
+	hit := func(i int) bool {
+		f := frames[i]
+		if len(f.Rows) < lines {
+			return false
+		}
+		return i > 0 && !media.SameLayout(f, frames[i-1]) || i+1 < len(frames) && !media.SameLayout(f, frames[i+1])
+	}
+	if s := runStarts(frames, hit, share, span); len(s) > 0 {
+		return s[0], true
+	}
+	return 0, false
+}
+
+// EndCredits finds credits of an item from its end scan alone (no audio
+// matching), for the debug command.
+func (a *Analyzer) EndCredits(ctx context.Context, it store.Item) (store.Segment, bool, error) {
+	it = a.fileDuration(ctx, it)
+	return a.endCredits(ctx, it, a.endScanStart(it))
+}
+
+// fileDuration corrects a duration Plex under-reports (Kraven .m2ts: 1094 s
+// of 7616) by the file's own, so that a movie's end scan reaches the end.
+func (a *Analyzer) fileDuration(ctx context.Context, it store.Item) store.Item {
+	d, err := a.FF.Duration(ctx, it.Path)
+	if err != nil {
+		a.Log.Warn("file duration", "key", it.RatingKey, "err", err)
+		return it
+	}
+	if d > it.Duration+store.DurationSlack {
+		a.Log.Info("plex duration too short", "key", it.RatingKey, "plex", it.Duration, "file", d)
+		it.Duration = d
+	}
+	return it
+}
+
+func (a *Analyzer) endScanStart(it store.Item) float64 {
+	if it.Kind == "movie" {
+		return max(it.Duration-a.Cfg.MovieCredits, it.Duration*0.75)
+	}
+	return a.creditsStart(it.Duration)
+}
+
 func (a *Analyzer) movie(ctx context.Context, it store.Item) error {
 	t0 := time.Now()
-	start := max(it.Duration-a.Cfg.MovieCredits, it.Duration*0.75)
-	s, ok, err := a.blackCredits(ctx, it, start)
+	it = a.fileDuration(ctx, it)
+	s, ok, err := a.endCredits(ctx, it, a.endScanStart(it))
 	if err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -669,6 +768,7 @@ func (a *Analyzer) movie(ctx context.Context, it store.Item) error {
 	if ok {
 		segs = append(segs, s)
 	}
-	a.Log.Info("movie analyzed", "title", it.Title, "credits", ok, "start", s.Start, "took", time.Since(t0).Round(time.Second))
+	a.Log.Info("movie analyzed", "title", it.Title, "credits", ok, "start", s.Start, "end", s.End, "source", s.Source,
+		"took", time.Since(t0).Round(time.Second))
 	return a.Store.SetResult(ctx, it.RatingKey, Version, segs)
 }

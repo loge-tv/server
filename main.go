@@ -37,17 +37,17 @@ func envDur(k string, def time.Duration) time.Duration {
 	return def
 }
 
-func main() {
-	level := slog.LevelInfo
+func logLevel() slog.Level {
 	if os.Getenv("LOG_LEVEL") == "debug" {
-		level = slog.LevelDebug
+		return slog.LevelDebug
 	}
-	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
-	if len(os.Args) > 1 && (os.Args[1] == "match" || os.Args[1] == "segments") {
-		cmd := debugMatch
-		if os.Args[1] == "segments" {
-			cmd = debugSegments
-		}
+	return slog.LevelInfo
+}
+
+func main() {
+	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel()}))
+	debug := map[string]func([]string) error{"match": debugMatch, "segments": debugSegments, "credits": debugCredits, "frames": debugFrames}
+	if cmd, ok := debug[os.Args[min(1, len(os.Args)-1)]]; ok && len(os.Args) > 1 {
 		if err := cmd(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
@@ -82,7 +82,7 @@ func run(log *slog.Logger) error {
 		Cfg:    analyzer.DefaultConfig(),
 		Plex:   px,
 		Store:  st,
-		FF:     &media.FFmpeg{Bin: env("FFMPEG", "ffmpeg"), Nice: nice, Timeout: envDur("FFMPEG_TIMEOUT", 15*time.Minute)},
+		FF:     &media.FFmpeg{Bin: env("FFMPEG", "ffmpeg"), Probe: env("FFPROBE", "ffprobe"), Nice: nice, Timeout: envDur("FFMPEG_TIMEOUT", 15*time.Minute)},
 		Guard:  guard.wait,
 		Log:    log,
 		Filter: os.Getenv("ONLY_PATH"),

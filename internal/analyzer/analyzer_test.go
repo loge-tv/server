@@ -76,17 +76,67 @@ func TestSceneAfter(t *testing.T) {
 	add(164, 200, 95)  // more credits
 	add(200, 230, 25)  // post-credits scene
 	add(230, 240, 100) // black to the end
-	if got := SceneRuns(frames, 100, 240, 50, 10); len(got) != 1 || got[0] != 200 {
+	if got := SceneRuns(frames, 100, 240, 50, 4, 10); len(got) != 1 || got[0] != 200 {
 		t.Fatalf("got %v, want [200]", got)
 	}
 	// A scene running to the end of the file counts too.
 	frames = frames[:len(frames)-5]
-	if got := SceneRuns(frames, 100, 230, 50, 10); len(got) != 1 || got[0] != 200 {
+	if got := SceneRuns(frames, 100, 230, 50, 4, 10); len(got) != 1 || got[0] != 200 {
 		t.Fatalf("to the end: got %v, want [200]", got)
 	}
 	// Credits to the end with only short logos: no scene.
-	if got := SceneRuns(frames[:100], 100, 200, 50, 10); len(got) != 0 {
+	if got := SceneRuns(frames[:100], 100, 200, 50, 4, 10); len(got) != 0 {
 		t.Fatalf("found scenes %v in credits without one", got)
+	}
+	// Credits over the picture (text lines on it) are not a scene.
+	for i := range frames {
+		if frames[i].T >= 200 {
+			frames[i].Rows = []int{20, 40, 60, 80, 100}
+		}
+	}
+	if got := SceneRuns(frames, 100, 230, 50, 4, 10); len(got) != 0 {
+		t.Fatalf("credits over a picture taken for scenes %v", got)
+	}
+}
+
+// scrolling: lines moving up 9 rows per keyframe; static: a logo/sign.
+func textFrames(from, to float64, rows func(i int) []int) []media.Frame {
+	var out []media.Frame
+	for i, x := 0, from; x < to; i, x = i+1, x+2 {
+		out = append(out, media.Frame{T: x, PBlack: 30, Strip: 1, Rows: rows(i)})
+	}
+	return out
+}
+
+func TestTextStart(t *testing.T) {
+	none := func(int) []int { return nil }
+	scroll := func(i int) []int {
+		var r []int
+		for y := 170 - 9*(i%12); y > 5; y -= 14 {
+			r = append([]int{y}, r...)
+		}
+		return r
+	}
+	static := func(int) []int { return []int{10, 30, 50, 70, 150} }
+	var frames []media.Frame
+	frames = append(frames, textFrames(0, 100, none)...)     // film
+	frames = append(frames, textFrames(100, 140, static)...) // a sign with many lines
+	frames = append(frames, textFrames(140, 160, none)...)
+	frames = append(frames, textFrames(160, 300, scroll)...) // credits scrolling
+	got, ok := TextStart(frames, 4, 0.6, 20)
+	if !ok || got != 160 {
+		t.Fatalf("got %v %v, want 160", got, ok)
+	}
+	// Card credits: a new card every keyframe, not scrolling, still moving.
+	cards := func(i int) []int { return []int{20 + 3*(i%2), 50, 80, 110} }
+	frames = append(textFrames(0, 100, none), textFrames(100, 200, cards)...)
+	if got, ok := TextStart(frames, 4, 0.6, 20); !ok || got != 100 {
+		t.Fatalf("cards: got %v %v, want 100", got, ok)
+	}
+	// Only the sign: no credits.
+	frames = append(textFrames(0, 100, none), textFrames(100, 200, static)...)
+	if got, ok := TextStart(frames, 4, 0.6, 20); ok {
+		t.Fatalf("a static sign taken for credits at %v", got)
 	}
 }
 
