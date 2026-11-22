@@ -58,10 +58,12 @@ func debugFrames(args []string) error {
 		return err
 	}
 	defer st.Close()
-	frames, _, ok, err := st.EndScan(context.Background(), args[0])
+	sc, ok, err := st.EndScan(context.Background(), args[0])
 	if err != nil || !ok {
 		return fmt.Errorf("no end scan: %v", err)
 	}
+	frames := sc.Frames
+	fmt.Printf("# from %.1f, file size %d mtime %d\n", sc.Start, sc.File.Size, sc.File.MTime)
 	from, _ := strconv.ParseFloat(args[1], 64)
 	to, _ := strconv.ParseFloat(args[2], 64)
 	sort.Slice(frames, func(i, j int) bool { return frames[i].T < frames[j].T })

@@ -1,10 +1,16 @@
 package analyzer
 
 import (
+	"context"
+	"errors"
+	"log/slog"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/loge-tv/detector/internal/media"
 	"github.com/loge-tv/detector/internal/plex"
+	"github.com/loge-tv/detector/internal/store"
 )
 
 func ip(i int) *int { return &i }
@@ -192,6 +198,71 @@ func TestOnBlackLevel(t *testing.T) {
 	} {
 		if s := OnBlackLevel(l, cfg.BlackLevel); s < cfg.BlackLevelShare {
 			t.Errorf("%s not taken for credits: share %v", name, s)
+		}
+	}
+}
+
+// The Odyssey: scanned while the SSD dropped out, ffmpeg stopped at 9860 s
+// of 10357 and the cut scan was taken as the whole end of the file.
+func TestScanValid(t *testing.T) {
+	file := media.FileState{Size: 92730105346, MTime: 1}
+	scan := func(last float64, f media.FileState) store.EndScan {
+		var fr []media.Frame
+		for x := 9157.7; x <= last; x += 1 {
+			fr = append(fr, media.Frame{T: x})
+		}
+		return store.EndScan{Start: 9157.7, File: f, Frames: fr}
+	}
+	const dur, start, slack = 10357, 9157, 120
+	for name, c := range map[string]struct {
+		sc   store.EndScan
+		have bool
+		want bool
+	}{
+		"whole":               {scan(10355, file), true, true},
+		"before 0.2.2":        {scan(10355, media.FileState{}), true, true},
+		"none":                {store.EndScan{}, false, false},
+		"cut by a read error": {scan(9860, file), true, false},
+		"cut, before 0.2.2":   {scan(9860, media.FileState{}), true, false},
+		"file replaced":       {scan(10355, media.FileState{Size: 9e9, MTime: 1}), true, false},
+		"file rewritten":      {scan(10355, media.FileState{Size: file.Size, MTime: 2}), true, false},
+	} {
+		if got := ScanValid(c.sc, c.have, start, file, dur, slack); got != c.want {
+			t.Errorf("%s: %v, want %v", name, got, c.want)
+		}
+	}
+	if ScanValid(store.EndScan{Start: 9000, File: file, Frames: scan(10355, file).Frames}, true, 9157+60, file, dur+60, slack) {
+		t.Error("window that misses the grown end reused")
+	}
+}
+
+// A file that can't be read (the disk dropped out) costs no attempt.
+func TestFailUnavailable(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	ok := filepath.Join(dir, "ok.mkv")
+	if err := os.WriteFile(ok, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a := &Analyzer{Cfg: DefaultConfig(), Store: st, Log: slog.New(slog.DiscardHandler)}
+	for _, it := range []store.Item{
+		{RatingKey: "gone", Kind: "movie", Path: filepath.Join(dir, "ssd", "gone.mkv"), Size: 1, Duration: 100},
+		{RatingKey: "ok", Kind: "movie", Path: ok, Size: 1, Duration: 100},
+	} {
+		if err := st.UpsertItem(ctx, it); err != nil {
+			t.Fatal(err)
+		}
+		a.fail(ctx, it, errors.New("ffmpeg end scan: exit status 1"))
+	}
+	for key, want := range map[string]int{"gone": 0, "ok": 1} {
+		it, _, _ := st.Item(ctx, key)
+		if it.Attempts != want {
+			t.Errorf("%s: %d attempts, want %d", key, it.Attempts, want)
 		}
 	}
 }

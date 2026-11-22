@@ -47,6 +47,7 @@ type Config struct {
 	TextShare       float64 // share of keyframes with moving text after credits start
 	TextSpan        float64 // ...over this many seconds
 	EndSnap         float64 // credits ending this close to the end run to the end
+	ScanCut         float64 // an end scan stopping this far before the end was cut short
 	MaxBitDiff      int
 	MaxGap          float64
 	MinFingerprint  float64 // a fingerprint with less non-silent audio is an error
@@ -64,7 +65,8 @@ type Config struct {
 //	6 — black level is absolute (≤ 3 of 255), not relative to the lowest.
 //	7 — ...or the steady most common level (black kept at 15 by encodes).
 //	8 — credits by moving text lines too (end scans redone with text).
-const Version = 8
+//	9 — end scans cut short by a read error are redone (The Odyssey).
+const Version = 9
 
 func DefaultConfig() Config {
 	return Config{
@@ -76,7 +78,7 @@ func DefaultConfig() Config {
 		ScenePercent: 50, SceneMin: 10, SceneProbe: 30, SceneSpread: 0.08,
 		BlackLevel: 3.5 / 255, BlackLevelShare: 0.6, MaxCreditChecks: 30,
 		TextLines: 4, TextShare: 0.6, TextSpan: 30, // Totoro: a keyframe per ~10 s
-		EndSnap:    15,
+		EndSnap: 15, ScanCut: 120,
 		MaxBitDiff: 6, MaxGap: 3.5,
 		MinFingerprint: 10,
 	}
@@ -218,6 +220,12 @@ func (a *Analyzer) pending(items ...store.Item) bool {
 }
 
 func (a *Analyzer) fail(ctx context.Context, it store.Item, err error) {
+	if _, serr := media.Stat(it.Path); errors.Is(err, media.ErrUnavailable) || serr != nil {
+		// The disk dropped out (it comes back after a remount): no attempt
+		// spent, the item stays pending for the next pass.
+		a.Log.Warn("file unavailable, retry on the next pass", "key", it.RatingKey, "path", it.Path, "err", err)
+		return
+	}
 	a.Log.Warn("analysis failed", "key", it.RatingKey, "path", it.Path, "attempt", it.Attempts+1, "err", err)
 	if ferr := a.Store.Fail(context.WithoutCancel(ctx), it.RatingKey, Version, err); ferr != nil {
 		a.Log.Error("store failure", "err", ferr)
@@ -408,6 +416,11 @@ func (a *Analyzer) season(ctx context.Context, eps []store.Item) error {
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
+				if errors.Is(err, media.ErrUnavailable) {
+					// Left pending: the disk dropped out, retried next pass.
+					a.Log.Warn("file unavailable, retry on the next pass", "key", l.item.RatingKey, "path", l.item.Path, "err", err)
+					continue
+				}
 				a.Log.Warn("end scan", "key", l.item.RatingKey, "path", l.item.Path, "err", err)
 			} else if ok {
 				segs = append(segs, s)
@@ -452,21 +465,36 @@ func sec(points int) float64 {
 // and returns credits starting at the first sustained run of black frames
 // or of moving text, whichever comes first.
 func (a *Analyzer) endCredits(ctx context.Context, it store.Item, start float64) (store.Segment, bool, error) {
-	frames, from, have, err := a.Store.EndScan(ctx, it.RatingKey)
+	file, err := media.Stat(it.Path)
 	if err != nil {
 		return store.Segment{}, false, err
 	}
-	if !have || stale(from, start) {
+	sc, have, err := a.Store.EndScan(ctx, it.RatingKey)
+	if err != nil {
+		return store.Segment{}, false, err
+	}
+	frames := sc.Frames
+	if !ScanValid(sc, have, start, file, it.Duration, a.Cfg.ScanCut) {
 		if err := a.Guard(ctx); err != nil {
 			return store.Segment{}, false, err
 		}
 		t0 := time.Now()
 		frames, err = a.FF.EndFrames(ctx, it.Path, start, it.Duration-start)
 		if err != nil {
+			if _, serr := media.Stat(it.Path); serr != nil {
+				return store.Segment{}, false, serr
+			}
 			return store.Segment{}, false, err
 		}
 		a.Log.Debug("end scan", "key", it.RatingKey, "frames", len(frames), "took", time.Since(t0).Round(time.Second))
-		if err := a.Store.PutEndScan(ctx, it.RatingKey, start, frames); err != nil {
+		if cut(frames, it.Duration, a.Cfg.ScanCut) {
+			// ffmpeg takes a read error for the end of the file.
+			if _, serr := media.Stat(it.Path); serr != nil {
+				return store.Segment{}, false, serr
+			}
+			a.Log.Warn("end scan stops short of the duration", "key", it.RatingKey, "last", frames[len(frames)-1].T, "duration", it.Duration)
+		}
+		if err := a.Store.PutEndScan(ctx, it.RatingKey, store.EndScan{Start: start, File: file, Frames: frames}); err != nil {
 			return store.Segment{}, false, err
 		}
 	}
@@ -661,6 +689,29 @@ func SceneRuns(frames []media.Frame, from, end float64, pct, lines int, min floa
 		out = append(out, runStart)
 	}
 	return out
+}
+
+// ScanValid reports whether a cached end scan can be reused for a scan from
+// start of file: same file (scans cached before 0.2.2 carry no state), a
+// window that reaches the end, and frames up to the end — a scan cut short
+// by a read error (a disk that dropped out) is redone.
+func ScanValid(sc store.EndScan, have bool, start float64, file media.FileState, dur, slack float64) bool {
+	if !have || stale(sc.Start, start) {
+		return false
+	}
+	if sc.File != (media.FileState{}) && sc.File != file {
+		return false
+	}
+	return !cut(sc.Frames, dur, slack)
+}
+
+// cut reports whether a scan stops more than slack seconds before dur.
+func cut(frames []media.Frame, dur, slack float64) bool {
+	last := 0.0
+	for _, f := range frames {
+		last = max(last, f.T)
+	}
+	return len(frames) == 0 || last < dur-slack
 }
 
 // stale reports whether a cached end-of-file window that started at cached

@@ -49,7 +49,9 @@ CREATE TABLE IF NOT EXISTS fingerprints (
 CREATE TABLE IF NOT EXISTS end_scans (
 	rating_key TEXT PRIMARY KEY,
 	start      REAL NOT NULL,
-	frames     TEXT NOT NULL            -- JSON []media.Frame
+	frames     TEXT NOT NULL,           -- JSON []media.Frame
+	size       INTEGER NOT NULL DEFAULT 0, -- the file scanned (media.FileState)
+	mtime      INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS segments (
 	rating_key TEXT NOT NULL,
@@ -98,13 +100,13 @@ func Open(path string) (*Store, error) {
 
 // migrate adds columns missing in databases created by older versions.
 func migrate(db *sql.DB) error {
-	for _, col := range []string{"algo", "fail_algo"} {
+	for _, c := range [][2]string{{"items", "algo"}, {"items", "fail_algo"}, {"end_scans", "size"}, {"end_scans", "mtime"}} {
 		var n int
-		if err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('items') WHERE name=?`, col).Scan(&n); err != nil {
+		if err := db.QueryRow(`SELECT count(*) FROM pragma_table_info(?) WHERE name=?`, c[0], c[1]).Scan(&n); err != nil {
 			return err
 		}
 		if n == 0 {
-			if _, err := db.Exec(`ALTER TABLE items ADD COLUMN ` + col + ` INTEGER NOT NULL DEFAULT 0`); err != nil {
+			if _, err := db.Exec(`ALTER TABLE ` + c[0] + ` ADD COLUMN ` + c[1] + ` INTEGER NOT NULL DEFAULT 0`); err != nil {
 				return err
 			}
 		}
@@ -274,29 +276,50 @@ func (s *Store) Fingerprint(ctx context.Context, key, part string) (Fingerprint,
 	return fp, err == nil, err
 }
 
-func (s *Store) PutEndScan(ctx context.Context, key string, start float64, frames []media.Frame) error {
-	b, err := json.Marshal(frames)
+// EndScan is a cached end scan: keyframes from Start of the file as it was
+// (File; zero for scans cached before 0.2.2).
+type EndScan struct {
+	Start  float64
+	File   media.FileState
+	Frames []media.Frame
+}
+
+// PutEndScan caches a scan. Luma probes of the item go with it: they were
+// taken from the previous scan's file.
+func (s *Store) PutEndScan(ctx context.Context, key string, sc EndScan) error {
+	b, err := json.Marshal(sc.Frames)
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `INSERT OR REPLACE INTO end_scans (rating_key, start, frames) VALUES (?,?,?)`, key, start, string(b))
-	return err
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM luma_probes WHERE rating_key=?`, key); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT OR REPLACE INTO end_scans (rating_key, start, frames, size, mtime) VALUES (?,?,?,?,?)`,
+		key, sc.Start, string(b), sc.File.Size, sc.File.MTime); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
-// EndScan returns the cached scan and the second it started at.
-func (s *Store) EndScan(ctx context.Context, key string) ([]media.Frame, float64, bool, error) {
+// EndScan returns the cached scan of an item.
+func (s *Store) EndScan(ctx context.Context, key string) (EndScan, bool, error) {
 	var raw string
-	var start float64
-	err := s.db.QueryRowContext(ctx, `SELECT start, frames FROM end_scans WHERE rating_key=?`, key).Scan(&start, &raw)
+	var sc EndScan
+	err := s.db.QueryRowContext(ctx, `SELECT start, frames, size, mtime FROM end_scans WHERE rating_key=?`, key).
+		Scan(&sc.Start, &raw, &sc.File.Size, &sc.File.MTime)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, 0, false, nil
+		return sc, false, nil
 	}
 	if err != nil {
-		return nil, 0, false, err
+		return sc, false, err
 	}
-	var frames []media.Frame
-	err = json.Unmarshal([]byte(raw), &frames)
-	return frames, start, err == nil, err
+	err = json.Unmarshal([]byte(raw), &sc.Frames)
+	return sc, err == nil, err
 }
 
 // LumaCheck returns cached luma of keyframes probed from start.

@@ -48,6 +48,11 @@ Loge clients ([Apple TV, iPhone, Mac](https://github.com/loge-tv/apple), [Androi
   a shorter one (Kraven .m2ts: 1094 s of 7616).
 - Failed or empty decodes are not cached as results; an item is retried up to
   3 times (on later passes); a new `analyzer.Version` gets 3 tries of its own.
+  A file Plex lists but the pod can't read (the SSD dropped out) costs no
+  attempt: the item stays pending until the file is back.
+- An end scan is cached with the file's size and mtime and redone when they
+  change, or when it stops > 2 min before the duration (ffmpeg takes a read
+  error for the end of the file).
 - Plex first reports a rough duration (whole minutes) for new files. When it
   grows later, the item is re-analysed, and cached windows that stop short of
   the new end are decoded again. Bumping `analyzer.Version` recomputes all

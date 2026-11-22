@@ -61,7 +61,11 @@ func TestUpsertDurationGrowth(t *testing.T) {
 	if err := st.UpsertItem(ctx, it); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.PutEndScan(ctx, "1", 810, []media.Frame{{T: 1250, PBlack: 99}}); err != nil {
+	if err := st.PutLumaCheck(ctx, "1", 1250, []media.Luma{{Low: 0}}); err != nil {
+		t.Fatal(err)
+	}
+	file := media.FileState{Size: 1, MTime: 42}
+	if err := st.PutEndScan(ctx, "1", EndScan{Start: 810, File: file, Frames: []media.Frame{{T: 1250, PBlack: 99}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.SetResult(ctx, "1", 2, nil); err != nil {
@@ -84,7 +88,11 @@ func TestUpsertDurationGrowth(t *testing.T) {
 	check(1258, true)  // shrank
 	check(1262, true)  // wobble
 	check(1284, false) // grew
-	if _, start, ok, err := st.EndScan(ctx, "1"); err != nil || !ok || start != 810 {
-		t.Fatalf("end scan: start %v ok %v err %v", start, ok, err)
+	if sc, ok, err := st.EndScan(ctx, "1"); err != nil || !ok || sc.Start != 810 || sc.File != file || len(sc.Frames) != 1 {
+		t.Fatalf("end scan: %+v ok %v err %v", sc, ok, err)
+	}
+	// A new scan drops the luma probes of the old one.
+	if _, ok, _ := st.LumaCheck(ctx, "1", 1250); ok {
+		t.Fatal("luma probe of the previous scan kept")
 	}
 }
