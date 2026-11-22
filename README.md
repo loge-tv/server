@@ -47,7 +47,7 @@ Loge clients ([Apple TV, iPhone, Mac](https://github.com/loge-tv/apple), [Androi
 - A movie's end scan uses the file's own duration (ffprobe) when Plex reports
   a shorter one (Kraven .m2ts: 1094 s of 7616).
 - Failed or empty decodes are not cached as results; an item is retried up to
-  3 times (on later passes).
+  3 times (on later passes); a new `analyzer.Version` gets 3 tries of its own.
 - Plex first reports a rough duration (whole minutes) for new files. When it
   grows later, the item is re-analysed, and cached windows that stop short of
   the new end are decoded again. Bumping `analyzer.Version` recomputes all

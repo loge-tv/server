@@ -153,6 +153,11 @@ func (a *Analyzer) Sync(ctx context.Context) error {
 
 // Work analyses everything pending. It returns when done or ctx ends.
 func (a *Analyzer) Work(ctx context.Context) error {
+	if n, err := a.Store.ResetAttempts(ctx, Version); err != nil {
+		return err
+	} else if n > 0 {
+		a.Log.Info("retrying items failed by older versions", "items", n)
+	}
 	items, err := a.Store.Items(ctx)
 	if err != nil {
 		return err
@@ -214,7 +219,7 @@ func (a *Analyzer) pending(items ...store.Item) bool {
 
 func (a *Analyzer) fail(ctx context.Context, it store.Item, err error) {
 	a.Log.Warn("analysis failed", "key", it.RatingKey, "path", it.Path, "attempt", it.Attempts+1, "err", err)
-	if ferr := a.Store.Fail(context.WithoutCancel(ctx), it.RatingKey, err); ferr != nil {
+	if ferr := a.Store.Fail(context.WithoutCancel(ctx), it.RatingKey, Version, err); ferr != nil {
 		a.Log.Error("store failure", "err", ferr)
 	}
 }

@@ -35,7 +35,8 @@ CREATE TABLE IF NOT EXISTS items (
 	attempts    INTEGER NOT NULL DEFAULT 0,
 	error       TEXT NOT NULL DEFAULT '',
 	analyzed_at INTEGER NOT NULL DEFAULT 0,
-	algo        INTEGER NOT NULL DEFAULT 0 -- analyzer version of the result
+	algo        INTEGER NOT NULL DEFAULT 0, -- analyzer version of the result
+	fail_algo   INTEGER NOT NULL DEFAULT 0  -- analyzer version of the failed attempts
 );
 CREATE INDEX IF NOT EXISTS items_season ON items(season_key);
 CREATE TABLE IF NOT EXISTS fingerprints (
@@ -97,13 +98,15 @@ func Open(path string) (*Store, error) {
 
 // migrate adds columns missing in databases created by older versions.
 func migrate(db *sql.DB) error {
-	var n int
-	if err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('items') WHERE name='algo'`).Scan(&n); err != nil {
-		return err
-	}
-	if n == 0 {
-		if _, err := db.Exec(`ALTER TABLE items ADD COLUMN algo INTEGER NOT NULL DEFAULT 0`); err != nil {
+	for _, col := range []string{"algo", "fail_algo"} {
+		var n int
+		if err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('items') WHERE name=?`, col).Scan(&n); err != nil {
 			return err
+		}
+		if n == 0 {
+			if _, err := db.Exec(`ALTER TABLE items ADD COLUMN ` + col + ` INTEGER NOT NULL DEFAULT 0`); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -231,13 +234,24 @@ func (s *Store) DeleteItems(ctx context.Context, keys []string) error {
 	return nil
 }
 
-func (s *Store) Fail(ctx context.Context, key string, cause error) error {
+// Fail counts a failed attempt of analyzer version algo.
+func (s *Store) Fail(ctx context.Context, key string, algo int, cause error) error {
 	msg := cause.Error()
 	if len(msg) > 1000 {
 		msg = msg[:1000]
 	}
-	_, err := s.db.ExecContext(ctx, `UPDATE items SET attempts=attempts+1, error=? WHERE rating_key=?`, msg, key)
+	_, err := s.db.ExecContext(ctx, `UPDATE items SET attempts=attempts+1, error=?, fail_algo=? WHERE rating_key=?`, msg, algo, key)
 	return err
+}
+
+// ResetAttempts clears the failed attempts made by analyzer versions older
+// than algo: a new version gets its own tries. Returns how many items.
+func (s *Store) ResetAttempts(ctx context.Context, algo int) (int64, error) {
+	r, err := s.db.ExecContext(ctx, `UPDATE items SET attempts=0 WHERE attempts>0 AND fail_algo<?`, algo)
+	if err != nil {
+		return 0, err
+	}
+	return r.RowsAffected()
 }
 
 type Fingerprint struct {
