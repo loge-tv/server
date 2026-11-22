@@ -21,6 +21,7 @@ import (
 	"github.com/loge-tv/detector/internal/media"
 	"github.com/loge-tv/detector/internal/plex"
 	"github.com/loge-tv/detector/internal/store"
+	"github.com/loge-tv/detector/internal/tmdb"
 )
 
 func env(k, def string) string {
@@ -88,12 +89,18 @@ func run(log *slog.Logger) error {
 		Filter: os.Getenv("ONLY_PATH"),
 	}
 
+	// TMDB recommendations are optional: without a key /v1/recommendations answers 404.
+	var recs api.Recommender
+	if key := os.Getenv("TMDB_API_KEY"); key != "" {
+		recs = tmdb.New(env("TMDB_URL", tmdb.DefaultBase), key)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	srv := &http.Server{
 		Addr:              env("LISTEN", ":8080"),
-		Handler:           (&api.Server{Store: st, Auth: px, Files: px, Log: log, TTL: 10 * time.Minute, DenyTTL: time.Minute}).Handler(),
+		Handler:           (&api.Server{Store: st, Auth: px, Files: px, Recs: recs, Log: log, TTL: 10 * time.Minute, DenyTTL: time.Minute}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go func() {

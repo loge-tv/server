@@ -88,6 +88,17 @@ for a browser's `<video src>`). The detector checks it against the Plex server
   - `PUT /v1/preferences/{key}` with a JSON object (≤ 16 KiB) → stores it and
     answers like `GET`; `{}` or `null` delete the record; anything else → 400;
   - `GET /v1/preferences` → `{"items":[…]}`, all records.
+- `GET /v1/recommendations?seeds=movie:38142,tv:1396[&language=ru-RU]` (≤ 5 seeds,
+  TMDB ids) → TMDB's recommendations for each, for the clients' «Потому что вы смотрели…»
+  shelf: `{"items":[{"seed":"movie:38142","titles":[{"tmdbId":372058,"type":"movie",
+  "title":"Твоё имя","originalTitle":"君の名は。","releaseDate":"2016-08-26","year":2016}]}]}`,
+  at most 20 per seed in TMDB's order, seeds in the order asked (duplicates dropped).
+  Clients find the titles in the Plex catalog by `tmdb://<tmdbId>` themselves (with the
+  account token the detector never sees). An unknown id gives `"titles":[]`; a seed TMDB
+  didn't answer gets `"failed":true`. Answers are cached for a day. Errors: 404
+  `{"configured":false}` without `TMDB_API_KEY` (clients hide the shelf), 502 when TMDB
+  refuses the key or no seed got an answer, 400 for bad seeds or language. No Plex token
+  goes to TMDB.
 - CORS for the web client on every `/v1/*`: `Access-Control-Allow-Origin: *`
   (auth is a header, no cookies), methods `GET, HEAD, PUT, OPTIONS`, headers
   `X-Plex-Token, Content-Type, Accept, Range`, exposed `Content-Length,
@@ -118,6 +129,8 @@ for a browser's `<video src>`). The detector checks it against the Plex server
 | `ANALYZE` | `true` | `false` serves the API only |
 | `ONLY_PATH` | — | analyse only items whose path contains this |
 | `VM_URL` | — | VictoriaMetrics for the memory guard |
+| `TMDB_API_KEY` | — | TMDB v3 API key or v4 read access token; unset: no recommendations |
+| `TMDB_URL` | `https://api.themoviedb.org/3` | |
 | `VM_MEM_QUERY` | `node_memory_MemAvailable_bytes{node="raspberrypi5"}` | |
 | `MIN_MEM_AVAILABLE_MB` | `400` | |
 | `FFMPEG`, `FFMPEG_NICE`, `FFMPEG_TIMEOUT` | `ffmpeg`, `15`, `15m` | |
@@ -132,3 +145,12 @@ builds `ghcr.io/loge-tv/detector` for arm64 (Alpine + ffmpeg). Tag
 ```bash
 go test ./...
 ```
+
+## TMDB from Russia
+
+TMDB's DNS (Route 53 by location) answers `127.0.0.1` for Russian client subnets. Google and
+Yandex DNS pass the client's subnet on (EDNS client subnet), so a router using them gives
+`127.0.0.1` too; Cloudflare and Quad9 don't, and get the real addresses, which work. The
+detector resolves TMDB as usual and, when that gives only loopback addresses, asks
+Cloudflare over DNS-over-HTTPS instead (`internal/tmdb/dial.go`).
+

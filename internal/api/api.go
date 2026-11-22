@@ -25,7 +25,8 @@ type Checker interface {
 type Server struct {
 	Store   *store.Store
 	Auth    Checker
-	Files   FileFinder // nil: /v1/files answers 404
+	Files   FileFinder  // nil: /v1/files answers 404
+	Recs    Recommender // nil (no TMDB key): /v1/recommendations answers 404
 	Log     *slog.Logger
 	TTL     time.Duration // cache of accepted tokens and of resolved files
 	DenyTTL time.Duration // cache of rejected tokens
@@ -53,6 +54,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /v1/preferences/{key}", s.auth(http.HandlerFunc(s.getPref)))
 	mux.Handle("PUT /v1/preferences/{key}", s.auth(http.HandlerFunc(s.putPref)))
 	mux.Handle("GET /v1/preferences", s.auth(http.HandlerFunc(s.listPrefs)))
+	mux.Handle("GET /v1/recommendations", s.auth(http.HandlerFunc(s.recommendations)))
 	// GET covers HEAD. {name} is ignored: players like a file name with an extension.
 	mux.Handle("GET /v1/files/{ratingKey}/{partId}", s.auth(http.HandlerFunc(s.file)))
 	mux.Handle("GET /v1/files/{ratingKey}/{partId}/{name}", s.auth(http.HandlerFunc(s.file)))
