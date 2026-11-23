@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"regexp"
 
-	"github.com/loge-tv/detector/internal/youtube"
+	"github.com/loge-tv/server/internal/youtube"
 )
 
 // StreamFinder gives a stream of a YouTube video that a TV plays itself.
@@ -18,7 +18,7 @@ var youtubeKeyRe = regexp.MustCompile(`^[A-Za-z0-9_-]{6,32}$`)
 
 // stream answers GET /v1/videos/{key}/stream (a YouTube id from /v1/videos):
 // {"url": HLS master playlist, "expiresAt"}. YouTube binds the playlist to
-// the detector's IP: it plays only from the same network.
+// the server's IP: it plays only from the same network.
 func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	if s.Streams == nil {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "yt-dlp is not available", "configured": false})

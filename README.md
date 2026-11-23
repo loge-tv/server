@@ -1,6 +1,7 @@
-# Loge detector
+# Loge Server
 
-Server-side intro and credits detection for a Plex library without Plex Pass.
+The server part of Loge (formerly the Loge detector): intro and credits detection for a
+Plex library without Plex Pass.
 Loge clients (Apple TV, iPhone, Mac, Android and
 [web](https://github.com/loge-tv/web)) ask it for segments by Plex `ratingKey` and skip them.
 Outside the home network it also hands out the video files themselves, which Plex without
@@ -62,9 +63,9 @@ Plex Pass refuses there.
   grows later, the item is re-analysed, and cached windows that stop short of
   the new end are decoded again. Bumping `analyzer.Version` recomputes all
   results from the caches (a minute, no ffmpeg).
-- `detector segments` (in the pod) dumps every item with its segments as TSV,
-  to diff results before and after a change; `detector frames <key> <from>
-  <to>` prints the cached end scan keyframes, `detector scan <key> <from>
+- `loge-server segments` (in the pod) dumps every item with its segments as TSV,
+  to diff results before and after a change; `loge-server frames <key> <from>
+  <to>` prints the cached end scan keyframes, `loge-server scan <key> <from>
   <to>` decodes them now (nothing stored).
 - One file at a time, ffmpeg under `nice`, `-threads 1`, capped probing. Before
   every ffmpeg run it checks the node's `MemAvailable` in VictoriaMetrics and
@@ -74,7 +75,7 @@ Plex Pass refuses there.
 
 All `/v1` endpoints need the `X-Plex-Token` header: the token the client
 uses for Plex (`/v1/files` also takes it as the `X-Plex-Token` query parameter,
-for a browser's `<video src>`). The detector checks it against the Plex server
+for a browser's `<video src>`). The server checks it against the Plex server
 (`/library/sections`) and caches the answer for 10 minutes (rejections for 1).
 
 - `GET /v1/segments/{ratingKey}` →
@@ -86,7 +87,7 @@ for a browser's `<video src>`). The detector checks it against the Plex server
   `{"items":[<same object as above>, …]}` in the order asked.
 - `GET /v1/stats` → counts of analysed items and found segments.
 - Client settings per show (its ratingKey) or movie — an opaque JSON object
-  the detector stores as is (own table, untouched by library sync):
+  the server stores as is (own table, untouched by library sync):
   - `GET /v1/preferences/{key}` →
     `{"key":"10","preferences":{…},"updatedAt":"2026-11-21T20:00:00Z"}`, no
     record → `{"key":"10","preferences":null}`;
@@ -99,7 +100,7 @@ for a browser's `<video src>`). The detector checks it against the Plex server
   "title":"Твоё имя","originalTitle":"君の名は。","releaseDate":"2016-08-26","year":2016}]}]}`,
   at most 20 per seed in TMDB's order, seeds in the order asked (duplicates dropped).
   Clients find the titles in the Plex catalog by `tmdb://<tmdbId>` themselves (with the
-  account token the detector never sees). An unknown id gives `"titles":[]`; a seed TMDB
+  account token the server never sees). An unknown id gives `"titles":[]`; a seed TMDB
   didn't answer gets `"failed":true`. Answers are cached for a day. Errors: 404
   `{"configured":false}` without `TMDB_API_KEY` (clients hide the shelf), 502 when TMDB
   refuses the key or no seed got an answer, 400 for bad seeds or language. No Plex token
@@ -114,7 +115,7 @@ for a browser's `<video src>`). The detector checks it against the Plex server
 - `GET /v1/videos/{key}/stream` (a YouTube id from `/v1/videos`) → `{"url":"<HLS master
   playlist>","expiresAt":"…"}`: a trailer a TV plays itself (tvOS has no web view for YouTube's
   player). yt-dlp finds it (seconds on a Raspberry Pi, one at a time, then cached until shortly before YouTube
-  lets it expire, ~6 h); YouTube binds the playlist to the detector's public IP, so it plays
+  lets it expire, ~6 h); YouTube binds the playlist to the server's public IP, so it plays
   only from the same network — clients ask only at home. Errors: 404 `{"configured":false}`
   without yt-dlp, 404 when the video has no HLS stream, 502 when yt-dlp fails, 400 for a bad id.
 - CORS for the web client on every `/v1/*`: `Access-Control-Allow-Origin: *`
@@ -126,7 +127,7 @@ for a browser's `<video src>`). The detector checks it against the Plex server
   that part (`Media[].Part[].id`), with `Range` for seeking; `{name}` is ignored
   (players like `file.mkv`). Outside the home network Plex without Plex Pass answers
   the file itself (`/library/parts/…`) with 403 "Downloading requires a Remote Watch
-  Pass or Plex Pass", while lists and artwork still load; the detector has the same
+  Pass or Plex Pass", while lists and artwork still load; the server has the same
   library mounted (read-only, same path as Plex) and serves it instead. The path
   comes from Plex — `/library/metadata/{ratingKey}` asked with the client's token,
   so the token must see that very item — and never from the request; it is cached
@@ -141,7 +142,7 @@ for a browser's `<video src>`). The detector checks it against the Plex server
 |---|---|---|
 | `PLEX_URL` | `http://127.0.0.1:32400` | Plex server |
 | `PLEX_TOKEN` | — | token with access to the libraries |
-| `DB_PATH` | `/data/detector.db` | SQLite |
+| `DB_PATH` | `/data/detector.db` | SQLite (the old file name, kept so existing installs keep their data) |
 | `LISTEN` | `:8080` | |
 | `POLL_INTERVAL` | `15m` | |
 | `ANALYZE` | `true` | `false` serves the API only |
@@ -158,8 +159,9 @@ for a browser's `<video src>`). The detector checks it against the Plex server
 
 ## Build
 
-GitHub Actions (`.github/workflows/detector.yml`) runs `go vet`/`go test` and
-builds `ghcr.io/loge-tv/detector` for arm64 (Alpine + ffmpeg). Tag
+GitHub Actions (`.github/workflows/server.yml`) runs `go vet`/`go test` and
+builds `ghcr.io/loge-tv/server` for arm64 (Alpine + ffmpeg); releases up to 0.3.1 are
+`ghcr.io/loge-tv/detector`. Tag
 `v<version>` publishes `:<version>`.
 
 ```bash
@@ -171,7 +173,7 @@ go test ./...
 TMDB's DNS (Route 53 by location) answers `127.0.0.1` for Russian client subnets. Google and
 Yandex DNS pass the client's subnet on (EDNS client subnet), so a router using them gives
 `127.0.0.1` too; Cloudflare and Quad9 don't, and get the real addresses, which work. The
-detector resolves TMDB as usual and, when that gives only loopback addresses, asks
+server resolves TMDB as usual and, when that gives only loopback addresses, asks
 Cloudflare over DNS-over-HTTPS instead (`internal/tmdb/dial.go`).
 
 ## License

@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/loge-tv/detector/internal/fingerprint"
+	"github.com/loge-tv/server/internal/fingerprint"
 )
 
 type FFmpeg struct {

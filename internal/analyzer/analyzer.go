@@ -16,11 +16,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/loge-tv/detector/internal/fingerprint"
-	"github.com/loge-tv/detector/internal/match"
-	"github.com/loge-tv/detector/internal/media"
-	"github.com/loge-tv/detector/internal/plex"
-	"github.com/loge-tv/detector/internal/store"
+	"github.com/loge-tv/server/internal/fingerprint"
+	"github.com/loge-tv/server/internal/match"
+	"github.com/loge-tv/server/internal/media"
+	"github.com/loge-tv/server/internal/plex"
+	"github.com/loge-tv/server/internal/store"
 )
 
 type Config struct {

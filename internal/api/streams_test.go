@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/loge-tv/detector/internal/store"
-	"github.com/loge-tv/detector/internal/youtube"
+	"github.com/loge-tv/server/internal/store"
+	"github.com/loge-tv/server/internal/youtube"
 )
 
 type fakeStreams struct{}

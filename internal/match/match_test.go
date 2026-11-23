@@ -5,7 +5,7 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/loge-tv/detector/internal/fingerprint"
+	"github.com/loge-tv/server/internal/fingerprint"
 )
 
 const sr = fingerprint.SampleRate

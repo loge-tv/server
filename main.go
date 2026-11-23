@@ -1,5 +1,5 @@
-// Command detector finds intros and credits in a Plex library by audio
-// fingerprints and black frames and serves them over HTTP for SkipTV.
+// Command loge-server (Loge Server) finds intros and credits in a Plex library
+// by audio fingerprints and black frames and serves them over HTTP to Loge clients.
 package main
 
 import (
@@ -18,13 +18,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/loge-tv/detector/internal/analyzer"
-	"github.com/loge-tv/detector/internal/api"
-	"github.com/loge-tv/detector/internal/media"
-	"github.com/loge-tv/detector/internal/plex"
-	"github.com/loge-tv/detector/internal/store"
-	"github.com/loge-tv/detector/internal/tmdb"
-	"github.com/loge-tv/detector/internal/youtube"
+	"github.com/loge-tv/server/internal/analyzer"
+	"github.com/loge-tv/server/internal/api"
+	"github.com/loge-tv/server/internal/media"
+	"github.com/loge-tv/server/internal/plex"
+	"github.com/loge-tv/server/internal/store"
+	"github.com/loge-tv/server/internal/tmdb"
+	"github.com/loge-tv/server/internal/youtube"
 )
 
 func env(k, def string) string {

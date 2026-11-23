@@ -1,7 +1,7 @@
 // Package youtube turns a YouTube video into a stream a TV plays itself: tvOS
 // has no web view to embed YouTube's player in. yt-dlp finds the video's HLS
 // master playlist; YouTube binds it to the IP that asked, so it plays only from
-// the network the detector is in — at home.
+// the network the server is in — at home.
 package youtube
 
 import (

@@ -1,4 +1,4 @@
-// Package api serves detected segments to SkipTV clients.
+// Package api serves detected segments, files, trailers and recommendations to Loge clients.
 package api
 
 import (
@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/loge-tv/detector/internal/store"
+	"github.com/loge-tv/server/internal/store"
 )
 
 // Checker reports whether a Plex token may use our Plex server.

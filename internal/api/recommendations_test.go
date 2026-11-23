@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/loge-tv/detector/internal/store"
-	"github.com/loge-tv/detector/internal/tmdb"
+	"github.com/loge-tv/server/internal/store"
+	"github.com/loge-tv/server/internal/tmdb"
 )
 
 type fakeRecs struct{ err map[int]error }
