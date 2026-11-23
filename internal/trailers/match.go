@@ -67,19 +67,19 @@ func (w words) query(t Title, show bool) string {
 
 type token struct {
 	text string
-	sep  bool // punctuation (not only spaces) between it and the one before
+	gap  string // the punctuation between it and the one before (spaces left out)
+	sep  bool   // there is some
 }
 
 // tokens: lower-case words and numbers, ё as е.
 func tokens(s string) []token {
 	var out []token
-	var b strings.Builder
-	sep := false
+	var b, gap strings.Builder
 	flush := func() {
 		if b.Len() > 0 {
-			out = append(out, token{b.String(), sep})
+			out = append(out, token{b.String(), gap.String(), gap.Len() > 0})
 			b.Reset()
-			sep = false
+			gap.Reset()
 		}
 	}
 	for _, r := range strings.ToLower(s) {
@@ -91,12 +91,24 @@ func tokens(s string) []token {
 		default:
 			flush()
 			if !unicode.IsSpace(r) {
-				sep = true
+				gap.WriteRune(r)
 			}
 		}
 	}
 	flush()
 	return out
+}
+
+// sequel: a number of a sequel after a title (a year is not one).
+func sequel(s string) bool {
+	if n, err := strconv.Atoi(s); err == nil {
+		return n >= 1 && n < 100
+	}
+	switch s {
+	case "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x":
+		return true
+	}
+	return false
 }
 
 func cyrillic(s string) bool {
@@ -124,9 +136,14 @@ func (w words) named(video, title []token) bool {
 		return false
 	}
 	// A neighbour word that belongs to another name: in the same script as the
-	// title, not set apart by punctuation, not one of the trailer words.
+	// title, not one of the trailer words.
 	other := func(t token) bool {
 		return cyrillic(t.text) && !hasPrefix(t.text, w.near)
+	}
+	// Set apart from the title by nothing, or by a colon or a full stop: a
+	// longer name («Книжный вор», «Аватар: Путь воды», «Аватар. Легенда об Аанге»).
+	joins := func(gap string) bool {
+		return gap == "" || strings.ContainsAny(gap, ":.")
 	}
 	for i := 0; i+len(title) <= len(video); i++ {
 		same := true
@@ -139,10 +156,16 @@ func (w words) named(video, title []token) bool {
 		if !same {
 			continue
 		}
-		if i > 0 && !video[i].sep && other(video[i-1]) {
+		if i > 0 && joins(video[i].gap) && other(video[i-1]) {
 			continue
 		}
-		if end := i + len(title); end < len(video) && !video[end].sep && other(video[end]) {
+		end := i + len(title)
+		if end < len(video) && joins(video[end].gap) && other(video[end]) {
+			continue
+		}
+		// A sequel: «Гладиатор 2», «Гладиатор II» (not «… 2 сезон»).
+		if end < len(video) && video[end].gap == "" && sequel(video[end].text) &&
+			!(end+1 < len(video) && strings.HasPrefix(video[end+1].text, w.season)) {
 			continue
 		}
 		return true

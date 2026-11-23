@@ -16,6 +16,8 @@ func TestJudge(t *testing.T) {
 	bookish := Title{Name: "Книжный", Year: 2025, LastYear: 2026}
 	insideJob := Title{Name: "Корпорация Заговор", Year: 2021, LastYear: 2022}
 	greener := Title{Name: "Зеленее травы", Year: 2019, LastYear: 2019}
+	gladiator := Title{Name: "Гладиатор", Year: 2000, LastYear: 2000}
+	avatar := Title{Name: "Аватар", Year: 2009, LastYear: 2009}
 	cases := []struct {
 		title    Title
 		video    string
@@ -64,6 +66,19 @@ func TestJudge(t *testing.T) {
 		{greener, "Greener Grass - Official Trailer I HD I IFC Midnight", 134, false, false},
 		{greener, "Зеленее травы — реакция на трейлер", 137, false, false},
 		{greener, "Зеленее травы — Русский трейлер (2019)", 0, false, false}, // a live stream
+
+		// Sequels and franchises without a year in the name.
+		{gladiator, "Гладиатор 2 — Русский трейлер", 140, false, false},
+		{gladiator, "Гладиатор II — Русский трейлер (Дубляж)", 140, false, false},
+		{gladiator, "Гладиатор — Русский трейлер", 140, true, false},
+		{gladiator, "Гладиатор (2000) | Трейлер", 140, true, false},
+		{avatar, "Аватар: Путь воды — Русский трейлер", 140, false, false},
+		{avatar, "Аватар. Легенда об Аанге — русский трейлер", 140, false, false},
+		{avatar, "Аватар 3 — Русский трейлер", 140, false, false},
+		{avatar, "Аватар — Русский трейлер", 140, true, false},
+		{avatar, "Аватар: Русский трейлер", 140, true, false},
+		{avatar, "Мстители: Аватар — трейлер", 140, false, false},
+		{insideJob, "Корпорация Заговор 2 сезон — трейлер", 120, true, false},
 	}
 	for _, c := range cases {
 		f, ok := ru.judge(youtube.Result{ID: "x", Title: c.video, Duration: c.seconds}, c.title)
