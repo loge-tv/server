@@ -106,6 +106,12 @@ for a browser's `<video src>`). The detector checks it against the Plex server
   trailers before teasers, official first, newest first. Cached for a day. Errors like
   `/v1/recommendations`: 404 `{"configured":false}` without `TMDB_API_KEY`, 502 when TMDB
   refuses the key or doesn't answer, 400 for a bad item or language.
+- `GET /v1/videos/{key}/stream` (a YouTube id from `/v1/videos`) → `{"url":"<HLS master
+  playlist>","expiresAt":"…"}`: a trailer a TV plays itself (tvOS has no web view for YouTube's
+  player). yt-dlp finds it (seconds on a Raspberry Pi, one at a time, then cached until shortly before YouTube
+  lets it expire, ~6 h); YouTube binds the playlist to the detector's public IP, so it plays
+  only from the same network — clients ask only at home. Errors: 404 `{"configured":false}`
+  without yt-dlp, 404 when the video has no HLS stream, 502 when yt-dlp fails, 400 for a bad id.
 - CORS for the web client on every `/v1/*`: `Access-Control-Allow-Origin: *`
   (auth is a header, no cookies), methods `GET, HEAD, PUT, OPTIONS`, headers
   `X-Plex-Token, Content-Type, Accept, Range`, exposed `Content-Length,
@@ -138,6 +144,8 @@ for a browser's `<video src>`). The detector checks it against the Plex server
 | `VM_URL` | — | VictoriaMetrics for the memory guard |
 | `TMDB_API_KEY` | — | TMDB v3 API key or v4 read access token; unset: no recommendations or trailers |
 | `TMDB_URL` | `https://api.themoviedb.org/3` | |
+| `YTDLP` | `yt-dlp` | yt-dlp for trailer streams (the image has it); `off`: no streams |
+| `YTDLP_UPDATE` | `true` | `false`: don't run `yt-dlp -U` daily (on a copy in `/tmp`) |
 | `VM_MEM_QUERY` | `node_memory_MemAvailable_bytes{node="raspberrypi5"}` | |
 | `MIN_MEM_AVAILABLE_MB` | `400` | |
 | `FFMPEG`, `FFMPEG_NICE`, `FFMPEG_TIMEOUT` | `ffmpeg`, `15`, `15m` | |

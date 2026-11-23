@@ -11,7 +11,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
@@ -22,6 +24,7 @@ import (
 	"github.com/loge-tv/detector/internal/plex"
 	"github.com/loge-tv/detector/internal/store"
 	"github.com/loge-tv/detector/internal/tmdb"
+	"github.com/loge-tv/detector/internal/youtube"
 )
 
 func env(k, def string) string {
@@ -100,9 +103,24 @@ func run(log *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// Trailers played on TVs: optional; without yt-dlp /v1/videos/{key}/stream
+	// answers 404 and apps open YouTube instead. YTDLP=off turns it off.
+	var streams api.StreamFinder
+	if bin := env("YTDLP", "yt-dlp"); bin != "off" {
+		if _, err := exec.LookPath(bin); err == nil {
+			yt := &youtube.Resolver{Bin: youtube.Updatable(bin, filepath.Join(os.TempDir(), "yt-dlp")), Log: log}
+			streams = yt
+			if os.Getenv("YTDLP_UPDATE") != "false" {
+				go yt.UpdateLoop(ctx, 24*time.Hour)
+			}
+		} else {
+			log.Info("no yt-dlp: TVs open trailers in YouTube", "bin", bin)
+		}
+	}
+
 	srv := &http.Server{
 		Addr:              env("LISTEN", ":8080"),
-		Handler:           (&api.Server{Store: st, Auth: px, Files: px, Recs: recs, Videos: videos, Log: log, TTL: 10 * time.Minute, DenyTTL: time.Minute}).Handler(),
+		Handler:           (&api.Server{Store: st, Auth: px, Files: px, Recs: recs, Videos: videos, Streams: streams, Log: log, TTL: 10 * time.Minute, DenyTTL: time.Minute}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go func() {
