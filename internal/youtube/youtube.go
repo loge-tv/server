@@ -49,12 +49,13 @@ type Resolver struct {
 	Run     Runner           // nil: exec
 	Now     func() time.Time // nil: time.Now
 
-	once    sync.Once
-	mu      sync.Mutex
-	cache   map[string]Stream
-	flights map[string]*flight
-	queue   []*flight // waiting for yt-dlp, in the order asked
-	busy    bool      // yt-dlp is on one
+	once     sync.Once
+	mu       sync.Mutex
+	cache    map[string]Stream
+	searches map[string]searchEntry
+	flights  map[string]*flight
+	queue    []*flight // waiting for yt-dlp, in the order asked
+	busy     bool      // yt-dlp is on one
 }
 
 type flight struct {
@@ -66,6 +67,14 @@ type flight struct {
 	callers int  // waiting for it
 	urgent  bool // someone pressed play, not only a page asking in advance
 	started bool
+
+	search  *searchJob // a search, not a video's stream
+	results []Result
+}
+
+type searchEntry struct {
+	results []Result
+	expires time.Time
 }
 
 // The playlist is good for hours; a TV asking just before it expires would
@@ -80,6 +89,7 @@ var expireRe = regexp.MustCompile(`/expire/(\d+)/`)
 func (r *Resolver) init() {
 	r.once.Do(func() {
 		r.cache = map[string]Stream{}
+		r.searches = map[string]searchEntry{}
 		r.flights = map[string]*flight{}
 		if r.Run == nil {
 			r.Run = execRun
@@ -128,20 +138,12 @@ func (r *Resolver) get(ctx context.Context, key string, urgent bool) (Stream, er
 	r.startNextLocked()
 	r.mu.Unlock()
 
-	select {
-	case <-f.done:
-		return f.stream, f.err
-	case <-ctx.Done():
-		r.mu.Lock()
-		f.callers--
-		if f.callers == 0 && !f.started {
-			// Not yet begun and nobody waits: the page left before its turn.
-			// One already running goes on: the next TV asking gets it.
-			r.dropLocked(f)
-		}
-		r.mu.Unlock()
-		return Stream{}, ctx.Err()
+	// Not yet begun and nobody waits: the page left before its turn. One
+	// already running goes on: the next TV asking gets it.
+	if _, err := r.wait(ctx, f, func() ([]Result, error) { return nil, f.err }); err != nil {
+		return Stream{}, err
 	}
+	return f.stream, nil
 }
 
 // startNextLocked gives yt-dlp the first video someone pressed play on, or
@@ -181,7 +183,17 @@ func (r *Resolver) resolve(f *flight, urgent bool) {
 	defer func() {
 		r.mu.Lock()
 		delete(r.flights, f.key)
-		if f.err == nil {
+		switch {
+		case f.err != nil:
+		case f.search != nil:
+			now := r.Now()
+			for k, e := range r.searches {
+				if now.After(e.expires) {
+					delete(r.searches, k)
+				}
+			}
+			r.searches[f.key] = searchEntry{results: f.results, expires: now.Add(searchLifetime)}
+		default:
 			r.cache[f.key] = f.stream
 		}
 		r.busy = false
@@ -193,6 +205,10 @@ func (r *Resolver) resolve(f *flight, urgent bool) {
 	// Not tied to a caller: a TV that gives up doesn't waste the run for the next one.
 	ctx, cancel := context.WithTimeout(context.Background(), r.Timeout)
 	defer cancel()
+	if f.search != nil {
+		r.runSearch(ctx, f)
+		return
+	}
 	started := r.Now()
 	out, via, err := r.info(ctx, f.key)
 	if err != nil {

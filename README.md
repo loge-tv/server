@@ -109,7 +109,16 @@ for a browser's `<video src>`). The server checks it against the Plex server
   of the movie or show for the clients' trailer button: `{"videos":[{"key":"<youtube id>",
   "name":"Трейлер","type":"Trailer","language":"ru","official":true,"publishedAt":"…",
   "size":1080}]}`, best first — in the language asked, then English, then the rest;
-  trailers before teasers, official first, newest first. Cached for a day. Errors like
+  trailers before teasers, official first, newest first. Cached for a day. TMDB lists few
+  dubbed trailers (none for most new titles in Russian): when it has none in the language
+  asked (Russian for now) and yt-dlp is there, YouTube's search is asked for
+  «<title> <year> трейлер» (shows: «<title> сериал трейлер»), and up to two of its videos go
+  first, `"official":false`, named «Трейлер, дубляж», «Тизер», «Трейлер, 2 сезон»… Only a
+  video whose name has the title on its own (not «Книжный вор» for «Книжный»), a trailer word
+  of the language and, when the name has one, the title's year (required when another title
+  has the same name), 20 s – 5½ min long, not a review or a reaction, and playable embedded
+  (YouTube's oEmbed). The search waits behind trailers someone pressed play on; a page waits
+  for it at most 8 s. Found ones are kept a week, "none" a day. Errors like
   `/v1/recommendations`: 404 `{"configured":false}` without `TMDB_API_KEY`, 502 when TMDB
   refuses the key or doesn't answer, 400 for a bad item or language.
 - `GET /v1/videos/{key}/stream` (a YouTube id from `/v1/videos`) → `{"url":"<HLS master
@@ -157,6 +166,7 @@ for a browser's `<video src>`). The server checks it against the Plex server
 | `TMDB_URL` | `https://api.themoviedb.org/3` | |
 | `YTDLP` | `yt-dlp` | yt-dlp for trailer streams (the image has it); `off`: no streams |
 | `YTDLP_UPDATE` | `true` | `false`: don't run `yt-dlp -U` daily (on a copy in `/tmp`) |
+| `TRAILER_SEARCH` | `true` | `false`: TMDB's trailers only, no YouTube search for ones in the language asked |
 | `YTDLP_WORKER` | `true` | `false`: run yt-dlp as a program for every trailer instead of keeping it loaded in `python3` |
 | `VM_MEM_QUERY` | `node_memory_MemAvailable_bytes{node="raspberrypi5"}` | |
 | `MIN_MEM_AVAILABLE_MB` | `400` | |

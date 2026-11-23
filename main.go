@@ -24,6 +24,7 @@ import (
 	"github.com/loge-tv/server/internal/plex"
 	"github.com/loge-tv/server/internal/store"
 	"github.com/loge-tv/server/internal/tmdb"
+	"github.com/loge-tv/server/internal/trailers"
 	"github.com/loge-tv/server/internal/youtube"
 )
 
@@ -106,6 +107,7 @@ func run(log *slog.Logger) error {
 	// Trailers played on TVs: optional; without yt-dlp /v1/videos/{key}/stream
 	// answers 404 and apps open YouTube instead. YTDLP=off turns it off.
 	var streams api.StreamFinder
+	var search trailers.Searcher
 	if bin := env("YTDLP", "yt-dlp"); bin != "off" {
 		if _, err := exec.LookPath(bin); err == nil {
 			dir := filepath.Join(os.TempDir(), "yt-dlp")
@@ -115,7 +117,7 @@ func run(log *slog.Logger) error {
 			if py, err := exec.LookPath("python3"); err == nil && os.Getenv("YTDLP_WORKER") != "false" {
 				yt.Worker = &youtube.Worker{Python: py, Zipapp: yt.Bin, Dir: dir, Log: log}
 			}
-			streams = yt
+			streams, search = yt, yt
 			if os.Getenv("YTDLP_UPDATE") != "false" {
 				go yt.UpdateLoop(ctx, 24*time.Hour) // loads the worker after the first update
 			} else if yt.Worker != nil {
@@ -124,6 +126,12 @@ func run(log *slog.Logger) error {
 		} else {
 			log.Info("no yt-dlp: TVs open trailers in YouTube", "bin", bin)
 		}
+	}
+
+	// TMDB lists few dubbed trailers: without one in the language asked, YouTube's
+	// search is asked for one (TRAILER_SEARCH=false: TMDB's only).
+	if c, ok := videos.(*tmdb.Client); ok && search != nil && os.Getenv("TRAILER_SEARCH") != "false" {
+		videos = &trailers.Finder{TMDB: c, YouTube: search, Log: log}
 	}
 
 	srv := &http.Server{

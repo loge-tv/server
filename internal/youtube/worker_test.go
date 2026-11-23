@@ -22,8 +22,18 @@ with open(os.environ["FAKE_YTDLP_IMPORTS"], "a") as f:
 class YoutubeDL:
     def __init__(self, opts):
         assert opts["skip_download"]
-    def extract_info(self, url, download, process):
-        assert not download and not process
+        self.opts = opts
+    def extract_info(self, url, download, process=True):
+        assert not download
+        if url.startswith("ytsearch"):
+            assert self.opts["extract_flat"]
+            lang = self.opts.get("extractor_args", {}).get("youtube", {}).get("lang", [""])[0]
+            n, query = url[len("ytsearch"):].split(":", 1)
+            return {"entries": [
+                {"id": "v%d" % i, "title": "%s #%d (%s)" % (query, i, lang), "duration": 60 + i, "channel": "c"}
+                for i in range(int(n))
+            ] + [{"title": "no id"}]}
+        assert not process
         key = url.rsplit("=", 1)[1]
         if key == "broken":
             raise Exception("ERROR: [youtube] broken: Sign in to confirm you're not a bot\n")

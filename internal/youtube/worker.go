@@ -71,12 +71,27 @@ func (w *Worker) Restart() {
 // errNoWorker when the worker can't run; a request that outlives ctx kills
 // the worker (it is stuck) and the next one starts it again.
 func (w *Worker) Info(ctx context.Context, key string) ([]byte, error) {
+	return w.ask(ctx, key)
+}
+
+// Search gives YouTube's first n videos for query, titles in lang (an
+// uploader's translation when there is one): {"entries": [...]} or {"error": "..."}.
+func (w *Worker) Search(ctx context.Context, query, lang string, n int) ([]byte, error) {
+	line, err := json.Marshal(map[string]any{"search": query, "lang": lang, "n": n})
+	if err != nil {
+		return nil, err
+	}
+	return w.ask(ctx, string(line))
+}
+
+// ask sends one line (a video id, or a JSON request) and reads the answer.
+func (w *Worker) ask(ctx context.Context, request string) ([]byte, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if err := w.startLocked(); err != nil {
 		return nil, err
 	}
-	if _, err := io.WriteString(w.in, key+"\n"); err != nil {
+	if _, err := io.WriteString(w.in, request+"\n"); err != nil {
 		w.stopLocked()
 		return nil, fmt.Errorf("%w: %v", ErrUnavailable, err)
 	}

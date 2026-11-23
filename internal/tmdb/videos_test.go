@@ -68,3 +68,44 @@ func TestVideos(t *testing.T) {
 		t.Errorf("unknown id: %v %v", v, err)
 	}
 }
+
+func TestDetailsAndSearch(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("language") != "ru" {
+			t.Errorf("language: %s", r.URL.RawQuery)
+		}
+		switch r.URL.Path {
+		case "/3/movie/547009":
+			w.Write([]byte(`{"title":"Зеленее травы","original_title":"Greener Grass","release_date":"2019-10-18"}`))
+		case "/3/tv/97727":
+			w.Write([]byte(`{"name":"Корпорация Заговор","original_name":"Inside Job","first_air_date":"2021-10-22","last_air_date":"2022-11-18"}`))
+		case "/3/search/multi":
+			if r.URL.Query().Get("query") != "Как ограбить банк" {
+				t.Errorf("query: %s", r.URL.RawQuery)
+			}
+			w.Write([]byte(`{"results":[
+			 {"id":1437511,"media_type":"movie","title":"Как ограбить банк","original_title":"How to Rob a Bank","release_date":"2026-09-04"},
+			 {"id":1,"media_type":"person","name":"Someone"},
+			 {"id":13534,"media_type":"movie","title":"Как ограбить банк","original_title":"How to Rob a Bank","release_date":"2007-01-01"}]}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+	c := &Client{Base: srv.URL + "/3", Key: "k", HTTP: srv.Client()}
+	d, ok, err := c.Details(context.Background(), Movie, 547009, "ru")
+	if err != nil || !ok || d.Title != "Зеленее травы" || d.Year != 2019 || d.LastYear != 2019 {
+		t.Fatalf("%+v %v %v", d, ok, err)
+	}
+	d, ok, err = c.Details(context.Background(), TV, 97727, "ru")
+	if err != nil || !ok || d.Title != "Корпорация Заговор" || d.Year != 2021 || d.LastYear != 2022 {
+		t.Fatalf("%+v %v %v", d, ok, err)
+	}
+	if _, ok, err := c.Details(context.Background(), TV, 5, "ru"); ok || err != nil {
+		t.Fatalf("unknown: %v %v", ok, err)
+	}
+	titles, err := c.Search(context.Background(), "Как ограбить банк", "ru")
+	if err != nil || len(titles) != 2 || titles[1].TMDBID != 13534 || titles[1].Year != 2007 {
+		t.Fatalf("%+v %v", titles, err)
+	}
+}
