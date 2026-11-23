@@ -114,10 +114,15 @@ for a browser's `<video src>`). The server checks it against the Plex server
   refuses the key or doesn't answer, 400 for a bad item or language.
 - `GET /v1/videos/{key}/stream` (a YouTube id from `/v1/videos`) → `{"url":"<HLS master
   playlist>","expiresAt":"…"}`: a trailer a TV plays itself (tvOS has no web view for YouTube's
-  player). yt-dlp finds it (seconds on a Raspberry Pi, one at a time, then cached until shortly before YouTube
-  lets it expire, ~6 h); YouTube binds the playlist to the server's public IP, so it plays
-  only from the same network — clients ask only at home. Errors: 404 `{"configured":false}`
-  without yt-dlp, 404 when the video has no HLS stream, 502 when yt-dlp fails, 400 for a bad id.
+  player). yt-dlp finds it (one at a time, then cached until shortly before YouTube lets it
+  expire, ~6 h). yt-dlp stays loaded in a `python3` next to the server, so a new video takes
+  ~2 s on a Raspberry Pi instead of ~5. If it can't be loaded, the server runs the program every
+  time. YouTube binds the playlist to the server's public IP, so it plays only from the same
+  network — clients ask only at home.
+  - `?prefetch=1`: a page asks before anyone pressed play. Such requests wait behind the ones
+    without it and are dropped if the client leaves before their turn.
+  - Errors: 404 `{"configured":false}` without yt-dlp, 404 when the video has no HLS stream,
+    502 when yt-dlp fails, 400 for a bad id.
 - CORS for the web client on every `/v1/*`: `Access-Control-Allow-Origin: *`
   (auth is a header, no cookies), methods `GET, HEAD, PUT, OPTIONS`, headers
   `X-Plex-Token, Content-Type, Accept, Range`, exposed `Content-Length,
@@ -152,6 +157,7 @@ for a browser's `<video src>`). The server checks it against the Plex server
 | `TMDB_URL` | `https://api.themoviedb.org/3` | |
 | `YTDLP` | `yt-dlp` | yt-dlp for trailer streams (the image has it); `off`: no streams |
 | `YTDLP_UPDATE` | `true` | `false`: don't run `yt-dlp -U` daily (on a copy in `/tmp`) |
+| `YTDLP_WORKER` | `true` | `false`: run yt-dlp as a program for every trailer instead of keeping it loaded in `python3` |
 | `VM_MEM_QUERY` | `node_memory_MemAvailable_bytes{node="raspberrypi5"}` | |
 | `MIN_MEM_AVAILABLE_MB` | `400` | |
 | `FFMPEG`, `FFMPEG_NICE`, `FFMPEG_TIMEOUT` | `ffmpeg`, `15`, `15m` | |

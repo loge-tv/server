@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +16,13 @@ import (
 )
 
 type fakeStreams struct{}
+
+// Prefetch answers with a "prefetch-" URL: the handler asked the right one.
+func (f fakeStreams) Prefetch(ctx context.Context, key string) (youtube.Stream, error) {
+	s, err := f.Stream(ctx, key)
+	s.URL = strings.Replace(s.URL, ".com/", ".com/prefetch-", 1)
+	return s, err
+}
 
 func (fakeStreams) Stream(_ context.Context, key string) (youtube.Stream, error) {
 	switch key {
@@ -57,6 +65,10 @@ func TestStream(t *testing.T) {
 		if code, body := get(t, srv.URL+path, "good"); code != want {
 			t.Errorf("%s: %d %s", path, code, body)
 		}
+	}
+	code, body = get(t, srv.URL+"/v1/videos/AyIZ9tiiN8I/stream?prefetch=1", "good")
+	if err := json.Unmarshal([]byte(body), &out); err != nil || code != 200 || out.URL != "https://manifest.googlevideo.com/prefetch-AyIZ9tiiN8I.m3u8" {
+		t.Fatalf("prefetch: %d %s", code, body)
 	}
 	if code, _ := get(t, srv.URL+"/v1/videos/AyIZ9tiiN8I/stream", ""); code != 401 {
 		t.Errorf("no token: %d", code)

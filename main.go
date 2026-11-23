@@ -108,10 +108,18 @@ func run(log *slog.Logger) error {
 	var streams api.StreamFinder
 	if bin := env("YTDLP", "yt-dlp"); bin != "off" {
 		if _, err := exec.LookPath(bin); err == nil {
-			yt := &youtube.Resolver{Bin: youtube.Updatable(bin, filepath.Join(os.TempDir(), "yt-dlp")), Log: log}
+			dir := filepath.Join(os.TempDir(), "yt-dlp")
+			yt := &youtube.Resolver{Bin: youtube.Updatable(bin, dir), Log: log}
+			// yt-dlp kept loaded in python3 (it is a zipapp): ~2 s less per trailer
+			// on a Raspberry Pi. YTDLP_WORKER=false runs the program every time.
+			if py, err := exec.LookPath("python3"); err == nil && os.Getenv("YTDLP_WORKER") != "false" {
+				yt.Worker = &youtube.Worker{Python: py, Zipapp: yt.Bin, Dir: dir, Log: log}
+			}
 			streams = yt
 			if os.Getenv("YTDLP_UPDATE") != "false" {
-				go yt.UpdateLoop(ctx, 24*time.Hour)
+				go yt.UpdateLoop(ctx, 24*time.Hour) // loads the worker after the first update
+			} else if yt.Worker != nil {
+				go yt.Worker.Warm()
 			}
 		} else {
 			log.Info("no yt-dlp: TVs open trailers in YouTube", "bin", bin)
