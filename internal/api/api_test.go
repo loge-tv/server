@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/loge-tv/detector/internal/store"
+	"github.com/loge-tv/server/internal/store"
 )
 
 type fakeAuth struct{ calls int }

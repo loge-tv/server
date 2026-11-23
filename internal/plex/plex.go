@@ -83,8 +83,8 @@ func (c *Client) get(ctx context.Context, path string, token string, q url.Value
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("X-Plex-Token", token)
-	req.Header.Set("X-Plex-Client-Identifier", "skiptv-detector")
-	req.Header.Set("X-Plex-Product", "SkipTV detector")
+	req.Header.Set("X-Plex-Client-Identifier", "loge-server")
+	req.Header.Set("X-Plex-Product", "Loge Server")
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return err

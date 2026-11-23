@@ -1,4 +1,4 @@
-module github.com/loge-tv/detector
+module github.com/loge-tv/server
 
 go 1.27.4
 

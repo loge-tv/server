@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/loge-tv/detector/internal/plex"
+	"github.com/loge-tv/server/internal/plex"
 )
 
 // FileFinder finds the file of an item's part on disk, asking Plex with the
@@ -38,7 +38,7 @@ var videoTypes = map[string]string{
 // file serves the original file of a part, with Range (seeking) and HEAD.
 // Outside the home network Plex without Plex Pass refuses the file itself
 // (403 "Downloading requires a Remote Watch Pass or Plex Pass"); the
-// detector has the same library mounted and hands it out instead. The path
+// server has the same library mounted and hands it out instead. The path
 // always comes from Plex, never from the request.
 func (s *Server) file(w http.ResponseWriter, r *http.Request) {
 	if s.Files == nil {
