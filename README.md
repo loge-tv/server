@@ -132,7 +132,7 @@ for a browser's `<video src>`). The server checks it against the Plex server
 ## Build
 
 GitHub Actions (`.github/workflows/server.yml`) runs `go vet`/`go test` and
-builds `ghcr.io/loge-tv/server` for arm64 (Alpine + ffmpeg); releases up to 0.3.1 are
+builds `ghcr.io/loge-tv/loge-server` for arm64 (Alpine + ffmpeg); releases up to 0.3.1 are
 `ghcr.io/loge-tv/detector`. Tag
 `v<version>` publishes `:<version>`.
 
