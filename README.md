@@ -1,7 +1,7 @@
 # Loge detector
 
 Server-side intro and credits detection for a Plex library without Plex Pass.
-Loge clients ([Apple TV, iPhone, Mac](https://github.com/loge-tv/apple), [Android](https://github.com/loge-tv/android),
+Loge clients (Apple TV, iPhone, Mac, Android and
 [web](https://github.com/loge-tv/web)) ask it for segments by Plex `ratingKey` and skip them.
 Outside the home network it also hands out the video files themselves, which Plex without
 Plex Pass refuses there.
@@ -132,3 +132,7 @@ builds `ghcr.io/loge-tv/detector` for arm64 (Alpine + ffmpeg). Tag
 ```bash
 go test ./...
 ```
+
+## License
+
+MIT, see [LICENSE](LICENSE).
