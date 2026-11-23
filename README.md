@@ -131,9 +131,9 @@ for a browser's `<video src>`). The server checks it against the Plex server
 
 ## Build
 
-GitHub Actions (`.github/workflows/server.yml`) runs `go vet`/`go test` and
-builds `ghcr.io/loge-tv/loge-server` for arm64 (Alpine + ffmpeg); releases up to 0.3.1 are
-`ghcr.io/loge-tv/detector`. Tag
+GitHub Actions (`.github/workflows/server.yml`) runs `go vet`/`go test` on amd64 and arm64 and
+builds `ghcr.io/loge-tv/loge-server` for both (`linux/amd64`, `linux/arm64`; Alpine + ffmpeg).
+Releases up to 0.4.1 are arm64 only, and up to 0.3.1 they are `ghcr.io/loge-tv/detector`. Tag
 `v<version>` publishes `:<version>`.
 
 ```bash
