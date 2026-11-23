@@ -50,7 +50,7 @@ func logLevel() slog.Level {
 
 func main() {
 	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel()}))
-	debug := map[string]func([]string) error{"match": debugMatch, "segments": debugSegments, "credits": debugCredits, "frames": debugFrames}
+	debug := map[string]func([]string) error{"match": debugMatch, "segments": debugSegments, "credits": debugCredits, "frames": debugFrames, "scan": debugScan}
 	if cmd, ok := debug[os.Args[min(1, len(os.Args)-1)]]; ok && len(os.Args) > 1 {
 		if err := cmd(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, err)
