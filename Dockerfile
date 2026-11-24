@@ -21,6 +21,9 @@ RUN apk add --no-cache ffmpeg ca-certificates tzdata python3 \
  && echo "$(grep ' yt-dlp$' /tmp/SUMS | cut -d' ' -f1)  /usr/local/bin/yt-dlp" | sha256sum -c - \
  && chmod 755 /usr/local/bin/yt-dlp \
  && rm /tmp/SUMS
+# The database's dir belongs to loge: a fresh Docker volume on /data takes the
+# image dir's owner, and a root-owned one can't take /data/detector.db.
+RUN install -d -o loge -g loge /data
 COPY --from=build /loge-server /usr/local/bin/loge-server
 USER 1000
 ENTRYPOINT ["/usr/local/bin/loge-server"]

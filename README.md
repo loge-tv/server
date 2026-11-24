@@ -2,10 +2,77 @@
 
 The server part of Loge (formerly the Loge detector): intro and credits detection for a
 Plex library without Plex Pass.
-Loge clients (Apple TV, iPhone, Mac, Android and
+Loge clients (Apple TV, iPhone, iPad, Mac, Android, Android TV and
 [web](https://github.com/loge-tv/web)) ask it for segments by Plex `ratingKey` and skip them.
 Outside the home network it also hands out the video files themselves, which Plex without
 Plex Pass refuses there.
+
+## Install with Docker Compose
+
+Loge Server runs next to Plex on a 64-bit Linux machine with Docker: x86-64 (`linux/amd64`) or
+ARM64 (`linux/arm64`, e.g. a Raspberry Pi 4 or 5). It reads the same files Plex plays, so it
+needs them on that machine, at the paths Plex shows for them. Plex on Windows shows Windows
+paths (`D:\Movies\…`), which the server can't open yet.
+
+1. Put [`compose.yaml`](compose.yaml) and [`.env.example`](.env.example) into a folder:
+
+   ```bash
+   mkdir loge-server && cd loge-server
+   curl -fsSLO https://raw.githubusercontent.com/loge-tv/server/main/compose.yaml
+   curl -fsSLO https://raw.githubusercontent.com/loge-tv/server/main/.env.example
+   cp .env.example .env
+   ```
+
+2. Fill in `.env`:
+   - `PLEX_URL`: your Plex server by its address in your home network, e.g.
+     `http://192.168.1.10:32400`. Not `127.0.0.1` or `localhost`: in the container that is the
+     container itself.
+   - `PLEX_TOKEN`: the token of the Plex account that owns the server, see Plex's
+     [Finding an authentication token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/).
+     It stays on this machine; Loge apps send their own users' tokens, and the server checks
+     them with Plex.
+   - `MEDIA_DIR`: the folder with your movies and shows on this machine. It is mounted
+     read-only.
+   - `MEDIA_PATH_IN_PLEX`: only when Plex runs in Docker and shows the files under another path
+     (in Plex: a movie's ⋯ menu, Get Info, the file's path). Then this is that path for the same
+     folder, e.g. `/media` when Plex has `MEDIA_DIR` mounted at `/media`.
+   - More library folders: add a line per folder under `volumes:` in `compose.yaml`, in the
+     same form.
+
+3. Start it and watch the log:
+
+   ```bash
+   docker compose up -d
+   docker compose logs -f
+   ```
+
+   `listening` means the API is up; every 15 minutes the server lists the library, and
+   `pass done` ends an analysis pass. The first pass goes through the whole library one file at a
+   time, at low priority: hours for a big one. Segments appear as items are done.
+
+4. In each Loge app, set the Loge Server address to `http://<this machine's address>:8080`.
+   For files outside the home network, the server must be reachable from there too, e.g. behind
+   a reverse proxy with HTTPS.
+
+The server runs as user 1000 in the container and must be able to read the files. When they are
+readable only by a group, add it to the service in `compose.yaml`: `group_add: ["<group id>"]`.
+
+`TMDB_API_KEY` is optional: your own [TMDB](https://www.themoviedb.org/) API key, for
+`/v1/recommendations`, `/v1/videos` and `/v1/titles`. Without it those answer 404, and the apps
+show no recommendations, trailers or translated catalog titles from this server.
+
+The database (analysis results, the apps' per-show settings) lives in the Docker volume
+`loge-server-data`, and `docker compose down` keeps it (`down -v` deletes it).
+
+### Update
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+`:main` is the latest build of the main branch. To stay on a release, set the image in
+`compose.yaml` to its version, e.g. `ghcr.io/loge-tv/loge-server:0.5.0`.
 
 ## How it works
 
@@ -172,7 +239,7 @@ for a browser's `<video src>`). The server checks it against the Plex server
 | `ANALYZE` | `true` | `false` serves the API only |
 | `ONLY_PATH` | — | analyse only items whose path contains this |
 | `VM_URL` | — | VictoriaMetrics for the memory guard |
-| `TMDB_API_KEY` | — | TMDB v3 API key or v4 read access token; unset: no recommendations or trailers |
+| `TMDB_API_KEY` | — | TMDB v3 API key or v4 read access token; unset: no recommendations, trailers or titles (404) |
 | `TMDB_URL` | `https://api.themoviedb.org/3` | |
 | `YTDLP` | `yt-dlp` | yt-dlp for trailer streams (the image has it); `off`: no streams |
 | `YTDLP_UPDATE` | `true` | `false`: don't run `yt-dlp -U` daily (on a copy in `/tmp`) |

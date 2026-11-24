@@ -1,0 +1,21 @@
+# Loge Server next to your Plex: copy .env.example to .env, fill it in, then
+#   docker compose up -d
+# See "Install with Docker Compose" in README.md.
+services:
+  loge-server:
+    image: ghcr.io/loge-tv/loge-server:main
+    container_name: loge-server
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      PLEX_URL: ${PLEX_URL:?PLEX_URL is not set, see .env.example}
+      PLEX_TOKEN: ${PLEX_TOKEN:?PLEX_TOKEN is not set, see .env.example}
+      TMDB_API_KEY: ${TMDB_API_KEY:-}
+    volumes:
+      - loge-server-data:/data
+      # The library, read-only, at the path Plex shows for its files.
+      - ${MEDIA_DIR:?MEDIA_DIR is not set, see .env.example}:${MEDIA_PATH_IN_PLEX:-${MEDIA_DIR}}:ro
+
+volumes:
+  loge-server-data:
