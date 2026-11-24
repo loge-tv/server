@@ -94,6 +94,54 @@ for a browser's `<video src>`). The server checks it against the Plex server
   - `PUT /v1/preferences/{key}` with a JSON object (≤ 16 KiB) → stores it and
     answers like `GET`; `{}` or `null` delete the record; anything else → 400;
   - `GET /v1/preferences` → `{"items":[…]}`, all records.
+- `GET /v1/recommendations?seeds=movie:38142,tv:1396[&language=ru-RU]` (≤ 5 seeds,
+  TMDB ids) → TMDB's recommendations for each, for the clients' «Потому что вы смотрели…»
+  shelf: `{"items":[{"seed":"movie:38142","titles":[{"tmdbId":372058,"type":"movie",
+  "title":"Твоё имя","originalTitle":"君の名は。","releaseDate":"2016-08-26","year":2016}]}]}`,
+  at most 20 per seed in TMDB's order, seeds in the order asked (duplicates dropped).
+  Clients find the titles in the Plex catalog by `tmdb://<tmdbId>` themselves (with the
+  account token the server never sees). An unknown id gives `"titles":[]`; a seed TMDB
+  didn't answer gets `"failed":true`. Answers are cached for a day. Errors: 404
+  `{"configured":false}` without `TMDB_API_KEY` (clients hide the shelf), 502 when TMDB
+  refuses the key or no seed got an answer, 400 for bad seeds or language. No Plex token
+  goes to TMDB.
+- `GET /v1/videos?item=movie:603[&language=ru-RU]` (a TMDB id) → YouTube trailers and teasers
+  of the movie or show for the clients' trailer button: `{"videos":[{"key":"<youtube id>",
+  "name":"Трейлер","type":"Trailer","language":"ru","official":true,"publishedAt":"…",
+  "size":1080}]}`, best first — in the language asked, then English, then the rest;
+  trailers before teasers, official first, newest first. Cached for a day. TMDB lists few
+  dubbed trailers (none for most new titles in Russian): when it has none in the language
+  asked (Russian for now) and yt-dlp is there, YouTube's search is asked for
+  «<title> <year> трейлер» (shows: «<title> сериал трейлер»), and up to two of its videos go
+  first, `"official":false`, named «Трейлер, дубляж», «Тизер», «Трейлер, 2 сезон»… Only a
+  video whose name has the title on its own (not «Книжный вор» for «Книжный»), a trailer word
+  of the language and, when the name has one, the title's year (required when another title
+  has the same name), 20 s – 5½ min long, not a review or a reaction, and playable embedded
+  (YouTube's oEmbed). The search waits behind trailers someone pressed play on; a page waits
+  for it at most 8 s. Found ones are kept a week, "none" a day. Errors like
+  `/v1/recommendations`: 404 `{"configured":false}` without `TMDB_API_KEY`, 502 when TMDB
+  refuses the key or doesn't answer, 400 for a bad item or language.
+- `GET /v1/titles?item=movie:2026:0:Soulm8te&item=tv:0:70523:[&language=ru-RU]` (≤ 60 items,
+  each `<movie|tv>:<year>:<tmdbId>:<title>`, year and id 0 when unknown) → names of catalog
+  titles that Plex has only in English, from TMDB's translations, in the order asked:
+  `{"items":[{"tmdbId":1307118,"title":"СОУЛМ8ЙТ"},{"tmdbId":70523,"title":"Тьма"},{}]}`.
+  Without an id the title is searched on TMDB in English: same kind, same name (TMDB's English
+  or original one, case aside) and the same year — one year off only when nothing else is
+  near; two candidates leave it unknown (`{}`), since a wrong name is worse than an English
+  one. No `title` when TMDB has no translation (for Russian: no Cyrillic name); `"failed":true`
+  when TMDB didn't answer for that item (ask again). Found names are kept a month, misses a
+  day. Errors like `/v1/recommendations`.
+- `GET /v1/videos/{key}/stream` (a YouTube id from `/v1/videos`) → `{"url":"<HLS master
+  playlist>","expiresAt":"…"}`: a trailer a TV plays itself (tvOS has no web view for YouTube's
+  player). yt-dlp finds it (one at a time, then cached until shortly before YouTube lets it
+  expire, ~6 h). yt-dlp stays loaded in a `python3` next to the server, so a new video takes
+  ~2 s on a Raspberry Pi instead of ~5. If it can't be loaded, the server runs the program every
+  time. YouTube binds the playlist to the server's public IP, so it plays only from the same
+  network — clients ask only at home.
+  - `?prefetch=1`: a page asks before anyone pressed play. Such requests wait behind the ones
+    without it and are dropped if the client leaves before their turn.
+  - Errors: 404 `{"configured":false}` without yt-dlp, 404 when the video has no HLS stream,
+    502 when yt-dlp fails, 400 for a bad id.
 - CORS for the web client on every `/v1/*`: `Access-Control-Allow-Origin: *`
   (auth is a header, no cookies), methods `GET, HEAD, PUT, OPTIONS`, headers
   `X-Plex-Token, Content-Type, Accept, Range`, exposed `Content-Length,
@@ -124,6 +172,12 @@ for a browser's `<video src>`). The server checks it against the Plex server
 | `ANALYZE` | `true` | `false` serves the API only |
 | `ONLY_PATH` | — | analyse only items whose path contains this |
 | `VM_URL` | — | VictoriaMetrics for the memory guard |
+| `TMDB_API_KEY` | — | TMDB v3 API key or v4 read access token; unset: no recommendations or trailers |
+| `TMDB_URL` | `https://api.themoviedb.org/3` | |
+| `YTDLP` | `yt-dlp` | yt-dlp for trailer streams (the image has it); `off`: no streams |
+| `YTDLP_UPDATE` | `true` | `false`: don't run `yt-dlp -U` daily (on a copy in `/tmp`) |
+| `TRAILER_SEARCH` | `true` | `false`: TMDB's trailers only, no YouTube search for ones in the language asked |
+| `YTDLP_WORKER` | `true` | `false`: run yt-dlp as a program for every trailer instead of keeping it loaded in `python3` |
 | `VM_MEM_QUERY` | `node_memory_MemAvailable_bytes{node="raspberrypi5"}` | |
 | `MIN_MEM_AVAILABLE_MB` | `400` | |
 | `FFMPEG`, `FFMPEG_NICE`, `FFMPEG_TIMEOUT` | `ffmpeg`, `15`, `15m` | |
@@ -139,6 +193,14 @@ Releases up to 0.4.1 are arm64 only, and up to 0.3.1 they are `ghcr.io/loge-tv/d
 ```bash
 go test ./...
 ```
+
+## TMDB from Russia
+
+TMDB's DNS (Route 53 by location) answers `127.0.0.1` for Russian client subnets. Google and
+Yandex DNS pass the client's subnet on (EDNS client subnet), so a router using them gives
+`127.0.0.1` too; Cloudflare and Quad9 don't, and get the real addresses, which work. The
+server resolves TMDB as usual and, when that gives only loopback addresses, asks
+Cloudflare over DNS-over-HTTPS instead (`internal/tmdb/dial.go`).
 
 ## License
 
