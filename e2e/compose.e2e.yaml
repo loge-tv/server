@@ -1,6 +1,7 @@
 # Test override for compose.yaml (see run.sh): the image built here, a fake
 # Plex and a fake TMDB on the compose network, no restarts (a crash must fail
-# the test) and no yt-dlp (YouTube wants a sign-in from CI's addresses).
+# the test), no yt-dlp (YouTube wants a sign-in from CI's addresses), and a
+# pass every 5 s (the fake Plex may start after the server).
 services:
   loge-server:
     image: ${E2E_IMAGE:-loge-server:e2e}
@@ -8,6 +9,7 @@ services:
     environment:
       TMDB_URL: http://faketmdb:8081/3
       YTDLP: "off"
+      POLL_INTERVAL: 5s
     depends_on: [fakeplex, faketmdb]
   fakeplex:
     image: ${E2E_IMAGE:-loge-server:e2e}
