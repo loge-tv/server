@@ -29,8 +29,21 @@ jobs:
       - run: go vet ./...
       - run: go test ./...
 
+  # compose.yaml as people run it, on real amd64 and arm64 (not emulation):
+  # a generated season through a fake Plex, analysed 6 times on fresh volumes;
+  # any crash fails it (see e2e/run.sh).
+  compose:
+    strategy:
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t loge-server:e2e .
+      - run: e2e/run.sh 6
+
   image:
-    needs: test
+    needs: [test, compose]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04-arm
     steps:

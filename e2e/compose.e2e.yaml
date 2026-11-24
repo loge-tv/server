@@ -1,0 +1,25 @@
+# Test override for compose.yaml (see run.sh): the image built here, a fake
+# Plex and a fake TMDB on the compose network, no restarts (a crash must fail
+# the test) and no yt-dlp (YouTube wants a sign-in from CI's addresses).
+services:
+  loge-server:
+    image: ${E2E_IMAGE:-loge-server:e2e}
+    restart: "no"
+    environment:
+      TMDB_URL: http://faketmdb:8081/3
+      YTDLP: "off"
+    depends_on: [fakeplex, faketmdb]
+  fakeplex:
+    image: ${E2E_IMAGE:-loge-server:e2e}
+    entrypoint: ["python3", "-I", "/e2e/fakeplex.py", "/e2e/media/manifest.json", "32400"]
+    environment:
+      PLEX_TOKEN: ${PLEX_TOKEN}
+    volumes:
+      - ./e2e:/e2e:ro
+  faketmdb:
+    image: ${E2E_IMAGE:-loge-server:e2e}
+    entrypoint: ["python3", "-I", "/e2e/faketmdb.py", "8081"]
+    environment:
+      TMDB_KEY: e2e-tmdb-key
+    volumes:
+      - ./e2e:/e2e:ro
