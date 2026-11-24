@@ -35,7 +35,8 @@ paths (`D:\Movies\…`), which the server can't open yet.
      read-only.
    - `MEDIA_PATH_IN_PLEX`: only when Plex runs in Docker and shows the files under another path
      (in Plex: a movie's ⋯ menu, Get Info, the file's path). Then this is that path for the same
-     folder, e.g. `/media` when Plex has `MEDIA_DIR` mounted at `/media`.
+     folder, e.g. `/media` when Plex has `MEDIA_DIR` mounted at `/media`. A folder under `/data`
+     (`/data/media`) is fine, `/data` itself is not: that is the database's volume.
    - More library folders: add a line per folder under `volumes:` in `compose.yaml`, in the
      same form.
 
