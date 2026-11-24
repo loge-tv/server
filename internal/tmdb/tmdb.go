@@ -58,6 +58,7 @@ type Client struct {
 	mu         sync.Mutex
 	cache      map[string]cacheEntry
 	videoCache map[string]videoEntry
+	names      map[string]nameEntry
 }
 
 type cacheEntry struct {

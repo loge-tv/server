@@ -121,6 +121,16 @@ for a browser's `<video src>`). The server checks it against the Plex server
   for it at most 8 s. Found ones are kept a week, "none" a day. Errors like
   `/v1/recommendations`: 404 `{"configured":false}` without `TMDB_API_KEY`, 502 when TMDB
   refuses the key or doesn't answer, 400 for a bad item or language.
+- `GET /v1/titles?item=movie:2026:0:Soulm8te&item=tv:0:70523:[&language=ru-RU]` (≤ 60 items,
+  each `<movie|tv>:<year>:<tmdbId>:<title>`, year and id 0 when unknown) → names of catalog
+  titles that Plex has only in English, from TMDB's translations, in the order asked:
+  `{"items":[{"tmdbId":1307118,"title":"СОУЛМ8ЙТ"},{"tmdbId":70523,"title":"Тьма"},{}]}`.
+  Without an id the title is searched on TMDB in English: same kind, same name (TMDB's English
+  or original one, case aside) and the same year — one year off only when nothing else is
+  near; two candidates leave it unknown (`{}`), since a wrong name is worse than an English
+  one. No `title` when TMDB has no translation (for Russian: no Cyrillic name); `"failed":true`
+  when TMDB didn't answer for that item (ask again). Found names are kept a month, misses a
+  day. Errors like `/v1/recommendations`.
 - `GET /v1/videos/{key}/stream` (a YouTube id from `/v1/videos`) → `{"url":"<HLS master
   playlist>","expiresAt":"…"}`: a trailer a TV plays itself (tvOS has no web view for YouTube's
   player). yt-dlp finds it (one at a time, then cached until shortly before YouTube lets it

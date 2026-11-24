@@ -96,9 +96,10 @@ func run(log *slog.Logger) error {
 	// TMDB is optional: without a key /v1/recommendations and /v1/videos answer 404.
 	var recs api.Recommender
 	var videos api.VideoFinder
+	var names api.Namer
 	if key := os.Getenv("TMDB_API_KEY"); key != "" {
 		c := tmdb.New(env("TMDB_URL", tmdb.DefaultBase), key)
-		recs, videos = c, c
+		recs, videos, names = c, c, c
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -136,7 +137,7 @@ func run(log *slog.Logger) error {
 
 	srv := &http.Server{
 		Addr:              env("LISTEN", ":8080"),
-		Handler:           (&api.Server{Store: st, Auth: px, Files: px, Recs: recs, Videos: videos, Streams: streams, Log: log, TTL: 10 * time.Minute, DenyTTL: time.Minute}).Handler(),
+		Handler:           (&api.Server{Store: st, Auth: px, Files: px, Recs: recs, Videos: videos, Names: names, Streams: streams, Log: log, TTL: 10 * time.Minute, DenyTTL: time.Minute}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go func() {
