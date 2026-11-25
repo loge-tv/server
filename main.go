@@ -11,7 +11,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
@@ -21,6 +23,9 @@ import (
 	"github.com/loge-tv/server/internal/media"
 	"github.com/loge-tv/server/internal/plex"
 	"github.com/loge-tv/server/internal/store"
+	"github.com/loge-tv/server/internal/tmdb"
+	"github.com/loge-tv/server/internal/trailers"
+	"github.com/loge-tv/server/internal/youtube"
 )
 
 func env(k, def string) string {
@@ -88,12 +93,51 @@ func run(log *slog.Logger) error {
 		Filter: os.Getenv("ONLY_PATH"),
 	}
 
+	// TMDB is optional: without a key /v1/recommendations and /v1/videos answer 404.
+	var recs api.Recommender
+	var videos api.VideoFinder
+	var names api.Namer
+	if key := os.Getenv("TMDB_API_KEY"); key != "" {
+		c := tmdb.New(env("TMDB_URL", tmdb.DefaultBase), key)
+		recs, videos, names = c, c, c
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// Trailers played on TVs: optional; without yt-dlp /v1/videos/{key}/stream
+	// answers 404 and apps open YouTube instead. YTDLP=off turns it off.
+	var streams api.StreamFinder
+	var search trailers.Searcher
+	if bin := env("YTDLP", "yt-dlp"); bin != "off" {
+		if _, err := exec.LookPath(bin); err == nil {
+			dir := filepath.Join(os.TempDir(), "yt-dlp")
+			yt := &youtube.Resolver{Bin: youtube.Updatable(bin, dir), Log: log}
+			// yt-dlp kept loaded in python3 (it is a zipapp): ~2 s less per trailer
+			// on a Raspberry Pi. YTDLP_WORKER=false runs the program every time.
+			if py, err := exec.LookPath("python3"); err == nil && os.Getenv("YTDLP_WORKER") != "false" {
+				yt.Worker = &youtube.Worker{Python: py, Zipapp: yt.Bin, Dir: dir, Log: log}
+			}
+			streams, search = yt, yt
+			if os.Getenv("YTDLP_UPDATE") != "false" {
+				go yt.UpdateLoop(ctx, 24*time.Hour) // loads the worker after the first update
+			} else if yt.Worker != nil {
+				go yt.Worker.Warm()
+			}
+		} else {
+			log.Info("no yt-dlp: TVs open trailers in YouTube", "bin", bin)
+		}
+	}
+
+	// TMDB lists few dubbed trailers: without one in the language asked, YouTube's
+	// search is asked for one (TRAILER_SEARCH=false: TMDB's only).
+	if c, ok := videos.(*tmdb.Client); ok && search != nil && os.Getenv("TRAILER_SEARCH") != "false" {
+		videos = &trailers.Finder{TMDB: c, YouTube: search, Log: log}
+	}
+
 	srv := &http.Server{
 		Addr:              env("LISTEN", ":8080"),
-		Handler:           (&api.Server{Store: st, Auth: px, Files: px, Log: log, TTL: 10 * time.Minute, DenyTTL: time.Minute}).Handler(),
+		Handler:           (&api.Server{Store: st, Auth: px, Files: px, Recs: recs, Videos: videos, Names: names, Streams: streams, Log: log, TTL: 10 * time.Minute, DenyTTL: time.Minute}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go func() {

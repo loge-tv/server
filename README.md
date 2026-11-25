@@ -2,10 +2,78 @@
 
 The server part of Loge (formerly the Loge detector): intro and credits detection for a
 Plex library without Plex Pass.
-Loge clients (Apple TV, iPhone, Mac, Android and
+Loge clients (Apple TV, iPhone, iPad, Mac, Android, Android TV and
 [web](https://github.com/loge-tv/web)) ask it for segments by Plex `ratingKey` and skip them.
 Outside the home network it also hands out the video files themselves, which Plex without
 Plex Pass refuses there.
+
+## Install with Docker Compose
+
+Loge Server runs next to Plex on a 64-bit Linux machine with Docker: x86-64 (`linux/amd64`) or
+ARM64 (`linux/arm64`, e.g. a Raspberry Pi 4 or 5). It reads the same files Plex plays, so it
+needs them on that machine, at the paths Plex shows for them. Plex on Windows shows Windows
+paths (`D:\Movies\…`), which the server can't open yet.
+
+1. Put [`compose.yaml`](compose.yaml) and [`.env.example`](.env.example) into a folder:
+
+   ```bash
+   mkdir loge-server && cd loge-server
+   curl -fsSLO https://raw.githubusercontent.com/loge-tv/server/main/compose.yaml
+   curl -fsSLO https://raw.githubusercontent.com/loge-tv/server/main/.env.example
+   cp .env.example .env
+   ```
+
+2. Fill in `.env`:
+   - `PLEX_URL`: your Plex server by its address in your home network, e.g.
+     `http://192.168.1.10:32400`. Not `127.0.0.1` or `localhost`: in the container that is the
+     container itself.
+   - `PLEX_TOKEN`: the token of the Plex account that owns the server, see Plex's
+     [Finding an authentication token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/).
+     It stays on this machine; Loge apps send their own users' tokens, and the server checks
+     them with Plex.
+   - `MEDIA_DIR`: the folder with your movies and shows on this machine. It is mounted
+     read-only.
+   - `MEDIA_PATH_IN_PLEX`: only when Plex runs in Docker and shows the files under another path
+     (in Plex: a movie's ⋯ menu, Get Info, the file's path). Then this is that path for the same
+     folder, e.g. `/media` when Plex has `MEDIA_DIR` mounted at `/media`. A folder under `/data`
+     (`/data/media`) is fine, `/data` itself is not: that is the database's volume.
+   - More library folders: add a line per folder under `volumes:` in `compose.yaml`, in the
+     same form.
+
+3. Start it and watch the log:
+
+   ```bash
+   docker compose up -d
+   docker compose logs -f
+   ```
+
+   `listening` means the API is up; every 15 minutes the server lists the library, and
+   `pass done` ends an analysis pass. The first pass goes through the whole library one file at a
+   time, at low priority: hours for a big one. Segments appear as items are done.
+
+4. In each Loge app, set the Loge Server address to `http://<this machine's address>:8080`.
+   For files outside the home network, the server must be reachable from there too, e.g. behind
+   a reverse proxy with HTTPS.
+
+The server runs as user 1000 in the container and must be able to read the files. When they are
+readable only by a group, add it to the service in `compose.yaml`: `group_add: ["<group id>"]`.
+
+`TMDB_API_KEY` is optional: your own [TMDB](https://www.themoviedb.org/) API key, for
+`/v1/recommendations`, `/v1/videos` and `/v1/titles`. Without it those answer 404, and the apps
+show no recommendations, trailers or translated catalog titles from this server.
+
+The database (analysis results, the apps' per-show settings) lives in the Docker volume
+`loge-server-data`, and `docker compose down` keeps it (`down -v` deletes it).
+
+### Update
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+`:main` is the latest build of the main branch. To stay on a release, set the image in
+`compose.yaml` to its version, e.g. `ghcr.io/loge-tv/loge-server:0.5.0`.
 
 ## How it works
 
@@ -94,6 +162,54 @@ for a browser's `<video src>`). The server checks it against the Plex server
   - `PUT /v1/preferences/{key}` with a JSON object (≤ 16 KiB) → stores it and
     answers like `GET`; `{}` or `null` delete the record; anything else → 400;
   - `GET /v1/preferences` → `{"items":[…]}`, all records.
+- `GET /v1/recommendations?seeds=movie:38142,tv:1396[&language=ru-RU]` (≤ 5 seeds,
+  TMDB ids) → TMDB's recommendations for each, for the clients' «Потому что вы смотрели…»
+  shelf: `{"items":[{"seed":"movie:38142","titles":[{"tmdbId":372058,"type":"movie",
+  "title":"Твоё имя","originalTitle":"君の名は。","releaseDate":"2016-08-26","year":2016}]}]}`,
+  at most 20 per seed in TMDB's order, seeds in the order asked (duplicates dropped).
+  Clients find the titles in the Plex catalog by `tmdb://<tmdbId>` themselves (with the
+  account token the server never sees). An unknown id gives `"titles":[]`; a seed TMDB
+  didn't answer gets `"failed":true`. Answers are cached for a day. Errors: 404
+  `{"configured":false}` without `TMDB_API_KEY` (clients hide the shelf), 502 when TMDB
+  refuses the key or no seed got an answer, 400 for bad seeds or language. No Plex token
+  goes to TMDB.
+- `GET /v1/videos?item=movie:603[&language=ru-RU]` (a TMDB id) → YouTube trailers and teasers
+  of the movie or show for the clients' trailer button: `{"videos":[{"key":"<youtube id>",
+  "name":"Трейлер","type":"Trailer","language":"ru","official":true,"publishedAt":"…",
+  "size":1080}]}`, best first — in the language asked, then English, then the rest;
+  trailers before teasers, official first, newest first. Cached for a day. TMDB lists few
+  dubbed trailers (none for most new titles in Russian): when it has none in the language
+  asked (Russian for now) and yt-dlp is there, YouTube's search is asked for
+  «<title> <year> трейлер» (shows: «<title> сериал трейлер»), and up to two of its videos go
+  first, `"official":false`, named «Трейлер, дубляж», «Тизер», «Трейлер, 2 сезон»… Only a
+  video whose name has the title on its own (not «Книжный вор» for «Книжный»), a trailer word
+  of the language and, when the name has one, the title's year (required when another title
+  has the same name), 20 s – 5½ min long, not a review or a reaction, and playable embedded
+  (YouTube's oEmbed). The search waits behind trailers someone pressed play on; a page waits
+  for it at most 8 s. Found ones are kept a week, "none" a day. Errors like
+  `/v1/recommendations`: 404 `{"configured":false}` without `TMDB_API_KEY`, 502 when TMDB
+  refuses the key or doesn't answer, 400 for a bad item or language.
+- `GET /v1/titles?item=movie:2026:0:Soulm8te&item=tv:0:70523:[&language=ru-RU]` (≤ 60 items,
+  each `<movie|tv>:<year>:<tmdbId>:<title>`, year and id 0 when unknown) → names of catalog
+  titles that Plex has only in English, from TMDB's translations, in the order asked:
+  `{"items":[{"tmdbId":1307118,"title":"СОУЛМ8ЙТ"},{"tmdbId":70523,"title":"Тьма"},{}]}`.
+  Without an id the title is searched on TMDB in English: same kind, same name (TMDB's English
+  or original one, case aside) and the same year — one year off only when nothing else is
+  near; two candidates leave it unknown (`{}`), since a wrong name is worse than an English
+  one. No `title` when TMDB has no translation (for Russian: no Cyrillic name); `"failed":true`
+  when TMDB didn't answer for that item (ask again). Found names are kept a month, misses a
+  day. Errors like `/v1/recommendations`.
+- `GET /v1/videos/{key}/stream` (a YouTube id from `/v1/videos`) → `{"url":"<HLS master
+  playlist>","expiresAt":"…"}`: a trailer a TV plays itself (tvOS has no web view for YouTube's
+  player). yt-dlp finds it (one at a time, then cached until shortly before YouTube lets it
+  expire, ~6 h). yt-dlp stays loaded in a `python3` next to the server, so a new video takes
+  ~2 s on a Raspberry Pi instead of ~5. If it can't be loaded, the server runs the program every
+  time. YouTube binds the playlist to the server's public IP, so it plays only from the same
+  network — clients ask only at home.
+  - `?prefetch=1`: a page asks before anyone pressed play. Such requests wait behind the ones
+    without it and are dropped if the client leaves before their turn.
+  - Errors: 404 `{"configured":false}` without yt-dlp, 404 when the video has no HLS stream,
+    502 when yt-dlp fails, 400 for a bad id.
 - CORS for the web client on every `/v1/*`: `Access-Control-Allow-Origin: *`
   (auth is a header, no cookies), methods `GET, HEAD, PUT, OPTIONS`, headers
   `X-Plex-Token, Content-Type, Accept, Range`, exposed `Content-Length,
@@ -124,6 +240,12 @@ for a browser's `<video src>`). The server checks it against the Plex server
 | `ANALYZE` | `true` | `false` serves the API only |
 | `ONLY_PATH` | — | analyse only items whose path contains this |
 | `VM_URL` | — | VictoriaMetrics for the memory guard |
+| `TMDB_API_KEY` | — | TMDB v3 API key or v4 read access token; unset: no recommendations, trailers or titles (404) |
+| `TMDB_URL` | `https://api.themoviedb.org/3` | |
+| `YTDLP` | `yt-dlp` | yt-dlp for trailer streams (the image has it); `off`: no streams |
+| `YTDLP_UPDATE` | `true` | `false`: don't run `yt-dlp -U` daily (on a copy in `/tmp`) |
+| `TRAILER_SEARCH` | `true` | `false`: TMDB's trailers only, no YouTube search for ones in the language asked |
+| `YTDLP_WORKER` | `true` | `false`: run yt-dlp as a program for every trailer instead of keeping it loaded in `python3` |
 | `VM_MEM_QUERY` | `node_memory_MemAvailable_bytes{node="raspberrypi5"}` | |
 | `MIN_MEM_AVAILABLE_MB` | `400` | |
 | `FFMPEG`, `FFMPEG_NICE`, `FFMPEG_TIMEOUT` | `ffmpeg`, `15`, `15m` | |
@@ -139,6 +261,14 @@ Releases up to 0.4.1 are arm64 only, and up to 0.3.1 they are `ghcr.io/loge-tv/d
 ```bash
 go test ./...
 ```
+
+## TMDB from Russia
+
+TMDB's DNS (Route 53 by location) answers `127.0.0.1` for Russian client subnets. Google and
+Yandex DNS pass the client's subnet on (EDNS client subnet), so a router using them gives
+`127.0.0.1` too; Cloudflare and Quad9 don't, and get the real addresses, which work. The
+server resolves TMDB as usual and, when that gives only loopback addresses, asks
+Cloudflare over DNS-over-HTTPS instead (`internal/tmdb/dial.go`).
 
 ## License
 
