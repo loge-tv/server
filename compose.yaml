@@ -3,7 +3,7 @@
 # See "Install with Docker Compose" in README.md.
 services:
   loge-server:
-    image: ghcr.io/loge-tv/loge-server:main
+    image: ghcr.io/sepiatv/loge-server:main
     container_name: loge-server
     restart: unless-stopped
     ports:
