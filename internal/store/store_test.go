@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/loge-tv/server/internal/media"
+	"github.com/sepiatv/server/internal/media"
 )
 
 // Attempts exhausted by one analyzer version are retried by the next one,

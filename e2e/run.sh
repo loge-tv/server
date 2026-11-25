@@ -5,7 +5,7 @@
 # fresh volume and must never crash. The first run also checks auth,
 # /v1/files with Range, TMDB with a key (fake TMDB) and without one (404).
 #
-# Usage: e2e/run.sh [RUNS]   image: $E2E_IMAGE (default loge-server:e2e)
+# Usage: e2e/run.sh [RUNS]   image: $E2E_IMAGE (default sepia-server:e2e)
 #
 # segments.json is what the analyzer finds today, compared within 0.5 s:
 # starts and credits are within 1 s of the generated ones, intro ends run
@@ -13,12 +13,12 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 RUNS=${1:-1}
-export E2E_IMAGE=${E2E_IMAGE:-loge-server:e2e}
+export E2E_IMAGE=${E2E_IMAGE:-sepia-server:e2e}
 export PLEX_URL=http://fakeplex:32400 PLEX_TOKEN=e2e-plex-token MEDIA_DIR=./e2e/media MEDIA_PATH_IN_PLEX=/media
 API=http://127.0.0.1:8080
 T="X-Plex-Token: $PLEX_TOKEN"
 
-dc() { docker compose -p loge-e2e -f compose.yaml -f e2e/compose.e2e.yaml "$@"; }
+dc() { docker compose -p sepia-e2e -f compose.yaml -f e2e/compose.e2e.yaml "$@"; }
 fail() {
 	echo "FAIL: $*"
 	dc logs --no-color loge-server | tail -60
@@ -39,9 +39,9 @@ crashed() {
 expect() {
 	local what=$1 code=$2 want=$3 got
 	shift 3
-	got=$(curl -s -o /tmp/loge-e2e-body -w '%{http_code}' "$@")
-	[ "$got" = "$code" ] && grep -q -F -- "$want" /tmp/loge-e2e-body ||
-		fail "$what: HTTP $got $(head -c 300 /tmp/loge-e2e-body), want $code with $want"
+	got=$(curl -s -o /tmp/sepia-e2e-body -w '%{http_code}' "$@")
+	[ "$got" = "$code" ] && grep -q -F -- "$want" /tmp/sepia-e2e-body ||
+		fail "$what: HTTP $got $(head -c 300 /tmp/sepia-e2e-body), want $code with $want"
 	echo "ok: $what"
 }
 
@@ -61,8 +61,8 @@ for n in $(seq 1 "$RUNS"); do
 		sleep 2
 	done
 	[ -n "$done" ] || fail "run $n: no analysis pass in 4 minutes"
-	curl -sf -H "$T" "$API/v1/segments?ratingKeys=101,102,103" >/tmp/loge-e2e-segments || fail "run $n: segments"
-	python3 - /tmp/loge-e2e-segments e2e/segments.json <<-'EOF' || fail "run $n: segments differ from e2e/segments.json"
+	curl -sf -H "$T" "$API/v1/segments?ratingKeys=101,102,103" >/tmp/sepia-e2e-segments || fail "run $n: segments"
+	python3 - /tmp/sepia-e2e-segments e2e/segments.json <<-'EOF' || fail "run $n: segments differ from e2e/segments.json"
 		import json, sys
 		got, want = (json.load(open(p))["items"] for p in sys.argv[1:])
 		def flat(items):
@@ -79,7 +79,7 @@ for n in $(seq 1 "$RUNS"); do
 		expect "segments, wrong token" 401 "" -H "X-Plex-Token: nope" "$API/v1/segments/101"
 		expect "segments, no token" 401 "" "$API/v1/segments/101"
 		expect "files, Range" 206 "" -r 1000-1999 -H "$T" "$API/v1/files/101/201/file.mkv"
-		cmp -s /tmp/loge-e2e-body <(tail -c +1001 "e2e/media/Test Show/Season 01/Test Show - S01E01.mkv" | head -c 1000) ||
+		cmp -s /tmp/sepia-e2e-body <(tail -c +1001 "e2e/media/Test Show/Season 01/Test Show - S01E01.mkv" | head -c 1000) ||
 			fail "files, Range: not the file's bytes"
 		expect "files, token in the query" 206 "" -r 0-9 "$API/v1/files/101/201?X-Plex-Token=$PLEX_TOKEN"
 		expect "files, wrong part" 404 "" -H "$T" "$API/v1/files/101/999"

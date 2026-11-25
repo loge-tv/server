@@ -1,4 +1,4 @@
-"""Generates a test season for Loge Server: 3 episodes of ~12 min with a shared
+"""Generates a test season for Sepia Server: 3 episodes of ~12 min with a shared
 intro and shared end credits, everything else unique per episode. Audio is
 sequences of tones in 300-3000 Hz (no silence anywhere), FLAC in MKV, so the
 fingerprints of unique parts never match each other.

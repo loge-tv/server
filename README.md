@@ -1,15 +1,15 @@
-# Loge Server
+# Sepia Server
 
-The server part of Loge (formerly the Loge detector): intro and credits detection for a
+The server part of Sepia TV (formerly Loge Server): intro and credits detection for a
 Plex library without Plex Pass.
-Loge clients (Apple TV, iPhone, iPad, Mac, Android, Android TV and
+Sepia TV clients (Apple TV, iPhone, iPad, Mac, Android, Android TV and
 [web](https://github.com/sepiatv/web)) ask it for segments by Plex `ratingKey` and skip them.
 Outside the home network it also hands out the video files themselves, which Plex without
 Plex Pass refuses there.
 
 ## Install with Docker Compose
 
-Loge Server runs next to Plex on a 64-bit Linux machine with Docker: x86-64 (`linux/amd64`) or
+Sepia Server runs next to Plex on a 64-bit Linux machine with Docker: x86-64 (`linux/amd64`) or
 ARM64 (`linux/arm64`, e.g. a Raspberry Pi 4 or 5). It reads the same files Plex plays, so it
 needs them on that machine, at the paths Plex shows for them. Plex on Windows shows Windows
 paths (`D:\Movies\…`), which the server can't open yet.
@@ -17,7 +17,7 @@ paths (`D:\Movies\…`), which the server can't open yet.
 1. Put [`compose.yaml`](compose.yaml) and [`.env.example`](.env.example) into a folder:
 
    ```bash
-   mkdir loge-server && cd loge-server
+   mkdir sepia-server && cd sepia-server
    curl -fsSLO https://raw.githubusercontent.com/sepiatv/server/main/compose.yaml
    curl -fsSLO https://raw.githubusercontent.com/sepiatv/server/main/.env.example
    cp .env.example .env
@@ -29,7 +29,7 @@ paths (`D:\Movies\…`), which the server can't open yet.
      container itself.
    - `PLEX_TOKEN`: the token of the Plex account that owns the server, see Plex's
      [Finding an authentication token](https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/).
-     It stays on this machine; Loge apps send their own users' tokens, and the server checks
+     It stays on this machine; Sepia TV apps send their own users' tokens, and the server checks
      them with Plex.
    - `MEDIA_DIR`: the folder with your movies and shows on this machine. It is mounted
      read-only.
@@ -51,7 +51,7 @@ paths (`D:\Movies\…`), which the server can't open yet.
    `pass done` ends an analysis pass. The first pass goes through the whole library one file at a
    time, at low priority: hours for a big one. Segments appear as items are done.
 
-4. In each Loge app, set the Loge Server address to `http://<this machine's address>:8080`.
+4. In each Sepia TV app, set the server address to `http://<this machine's address>:8080`.
    For files outside the home network, the server must be reachable from there too, e.g. behind
    a reverse proxy with HTTPS.
 
@@ -63,9 +63,12 @@ readable only by a group, add it to the service in `compose.yaml`: `group_add: [
 show no recommendations, trailers or translated catalog titles from this server.
 
 The database (analysis results, the apps' per-show settings) lives in the Docker volume
-`loge-server-data`, and `docker compose down` keeps it (`down -v` deletes it).
+`<folder>_loge-server-data` (the name is from before the rename), and `docker compose down`
+keeps it (`down -v` deletes it).
 
 ### Update
+
+In the folder with your `compose.yaml`:
 
 ```bash
 docker compose pull
@@ -73,7 +76,16 @@ docker compose up -d
 ```
 
 `:main` is the latest build of the main branch. To stay on a release, set the image in
-`compose.yaml` to its version, e.g. `ghcr.io/sepiatv/loge-server:0.5.1`.
+`compose.yaml` to its version, e.g. `ghcr.io/sepiatv/sepia-server:0.6.0`.
+
+From 0.5.1 or earlier (image `…/loge-server`): first take the new `compose.yaml` into the same
+folder, `loge-server` if you followed this README then. The database's volume is named after the
+folder, so a new folder starts with an empty database. Carry your own changes (more folders,
+`group_add`) over to the new file; the container is then called `sepia-server`.
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/sepiatv/server/main/compose.yaml
+```
 
 ## How it works
 
@@ -131,9 +143,9 @@ docker compose up -d
   grows later, the item is re-analysed, and cached windows that stop short of
   the new end are decoded again. Bumping `analyzer.Version` recomputes all
   results from the caches (a minute, no ffmpeg).
-- `loge-server segments` (in the pod) dumps every item with its segments as TSV,
-  to diff results before and after a change; `loge-server frames <key> <from>
-  <to>` prints the cached end scan keyframes, `loge-server scan <key> <from>
+- `sepia-server segments` (in the pod) dumps every item with its segments as TSV,
+  to diff results before and after a change; `sepia-server frames <key> <from>
+  <to>` prints the cached end scan keyframes, `sepia-server scan <key> <from>
   <to>` decodes them now (nothing stored).
 - One file at a time, ffmpeg under `nice`, `-threads 1`, capped probing. Before
   every ffmpeg run it checks the node's `MemAvailable` in VictoriaMetrics and
@@ -254,9 +266,10 @@ for a browser's `<video src>`). The server checks it against the Plex server
 ## Build
 
 GitHub Actions (`.github/workflows/server.yml`) runs `go vet`/`go test` on amd64 and arm64 and
-builds `ghcr.io/sepiatv/loge-server` for both (`linux/amd64`, `linux/arm64`; Alpine + ffmpeg).
-Releases up to 0.4.1 are arm64 only, and up to 0.3.1 the image was called `detector`. Tag
-`v<version>` publishes `:<version>`.
+builds `ghcr.io/sepiatv/sepia-server` for both (`linux/amd64`, `linux/arm64`; Alpine + ffmpeg).
+Releases up to 0.5.1 are `ghcr.io/sepiatv/loge-server`, which gets the same builds for now; up to
+0.4.1 they are arm64 only, and up to 0.3.1 the image was called `detector`. Tag `v<version>`
+publishes `:<version>`.
 
 ```bash
 go test ./...

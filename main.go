@@ -1,5 +1,5 @@
-// Command loge-server (Loge Server) finds intros and credits in a Plex library
-// by audio fingerprints and black frames and serves them over HTTP to Loge clients.
+// Command sepia-server (Sepia Server) finds intros and credits in a Plex library
+// by audio fingerprints and black frames and serves them over HTTP to Sepia TV clients.
 package main
 
 import (
@@ -18,14 +18,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/loge-tv/server/internal/analyzer"
-	"github.com/loge-tv/server/internal/api"
-	"github.com/loge-tv/server/internal/media"
-	"github.com/loge-tv/server/internal/plex"
-	"github.com/loge-tv/server/internal/store"
-	"github.com/loge-tv/server/internal/tmdb"
-	"github.com/loge-tv/server/internal/trailers"
-	"github.com/loge-tv/server/internal/youtube"
+	"github.com/sepiatv/server/internal/analyzer"
+	"github.com/sepiatv/server/internal/api"
+	"github.com/sepiatv/server/internal/media"
+	"github.com/sepiatv/server/internal/plex"
+	"github.com/sepiatv/server/internal/store"
+	"github.com/sepiatv/server/internal/tmdb"
+	"github.com/sepiatv/server/internal/trailers"
+	"github.com/sepiatv/server/internal/youtube"
 )
 
 func env(k, def string) string {

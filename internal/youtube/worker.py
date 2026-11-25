@@ -1,4 +1,4 @@
-# Loge Server's yt-dlp, loaded once: a video id (or a JSON search request) per
+# Sepia Server's yt-dlp, loaded once: a video id (or a JSON search request) per
 # line in, one JSON line out.
 # Started by worker.go with the yt-dlp zipapp (importable) as its argument; a
 # new yt-dlp process per trailer spent ~2 s of a Raspberry Pi on starting.

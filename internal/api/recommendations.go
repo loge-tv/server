@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/loge-tv/server/internal/tmdb"
+	"github.com/sepiatv/server/internal/tmdb"
 )
 
 // Recommender gives TMDB's recommendations for a movie or show.

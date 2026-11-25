@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/loge-tv/server/internal/tmdb"
+	"github.com/sepiatv/server/internal/tmdb"
 )
 
 // Namer gives a catalog title's name in a language (TMDB's translation).

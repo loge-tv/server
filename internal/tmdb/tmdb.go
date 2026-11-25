@@ -1,5 +1,5 @@
 // Package tmdb asks The Movie Database for recommendations (titles like a
-// given movie or show, for the Loge "Потому что вы смотрели…" shelf) and for
+// given movie or show, for the Sepia TV "Потому что вы смотрели…" shelf) and for
 // trailers.
 package tmdb
 

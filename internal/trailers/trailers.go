@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/loge-tv/server/internal/tmdb"
-	"github.com/loge-tv/server/internal/youtube"
+	"github.com/sepiatv/server/internal/tmdb"
+	"github.com/sepiatv/server/internal/youtube"
 )
 
 // TMDB is what the finder asks TMDB (tmdb.Client).

@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"regexp"
 
-	"github.com/loge-tv/server/internal/youtube"
+	"github.com/sepiatv/server/internal/youtube"
 )
 
 // StreamFinder gives a stream of a YouTube video that a TV plays itself.
