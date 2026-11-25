@@ -3,7 +3,7 @@
 The server part of Loge (formerly the Loge detector): intro and credits detection for a
 Plex library without Plex Pass.
 Loge clients (Apple TV, iPhone, iPad, Mac, Android, Android TV and
-[web](https://github.com/loge-tv/web)) ask it for segments by Plex `ratingKey` and skip them.
+[web](https://github.com/sepiatv/web)) ask it for segments by Plex `ratingKey` and skip them.
 Outside the home network it also hands out the video files themselves, which Plex without
 Plex Pass refuses there.
 
@@ -18,8 +18,8 @@ paths (`D:\Movies\…`), which the server can't open yet.
 
    ```bash
    mkdir loge-server && cd loge-server
-   curl -fsSLO https://raw.githubusercontent.com/loge-tv/server/main/compose.yaml
-   curl -fsSLO https://raw.githubusercontent.com/loge-tv/server/main/.env.example
+   curl -fsSLO https://raw.githubusercontent.com/sepiatv/server/main/compose.yaml
+   curl -fsSLO https://raw.githubusercontent.com/sepiatv/server/main/.env.example
    cp .env.example .env
    ```
 
@@ -73,7 +73,7 @@ docker compose up -d
 ```
 
 `:main` is the latest build of the main branch. To stay on a release, set the image in
-`compose.yaml` to its version, e.g. `ghcr.io/loge-tv/loge-server:0.5.0`.
+`compose.yaml` to its version, e.g. `ghcr.io/sepiatv/loge-server:0.5.1`.
 
 ## How it works
 
@@ -254,8 +254,8 @@ for a browser's `<video src>`). The server checks it against the Plex server
 ## Build
 
 GitHub Actions (`.github/workflows/server.yml`) runs `go vet`/`go test` on amd64 and arm64 and
-builds `ghcr.io/loge-tv/loge-server` for both (`linux/amd64`, `linux/arm64`; Alpine + ffmpeg).
-Releases up to 0.4.1 are arm64 only, and up to 0.3.1 they are `ghcr.io/loge-tv/detector`. Tag
+builds `ghcr.io/sepiatv/loge-server` for both (`linux/amd64`, `linux/arm64`; Alpine + ffmpeg).
+Releases up to 0.4.1 are arm64 only, and up to 0.3.1 the image was called `detector`. Tag
 `v<version>` publishes `:<version>`.
 
 ```bash
