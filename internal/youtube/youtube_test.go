@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -227,5 +228,104 @@ func TestLeftPageDropsItsWaitingPrefetch(t *testing.T) {
 	// Asked again later: a new run, not a dropped one.
 	if _, err := r.Prefetch(context.Background(), "leftpage"); err != nil || o.got() != "playing leftpage" {
 		t.Fatalf("again: %v %q", err, o.got())
+	}
+}
+
+// updateRuns stands in for yt-dlp: -U writes the new release into the file it
+// is run as; a video records which release it read and waits to be released.
+type updateRuns struct {
+	mu      sync.Mutex
+	seen    []string
+	updated chan string // the file -U ran as
+	release chan struct{}
+	result  string // -U's last line; "up to date" leaves the file as it was
+}
+
+func (u *updateRuns) run(_ context.Context, bin string, a ...string) ([]byte, error) {
+	if a[len(a)-1] == "-U" {
+		if !strings.Contains(u.result, "up to date") {
+			os.WriteFile(bin, []byte("2026.11.23"), 0o755)
+		}
+		u.updated <- bin
+		return []byte("Updating…\n" + u.result + "\n"), nil
+	}
+	b, _ := os.ReadFile(bin)
+	u.mu.Lock()
+	u.seen = append(u.seen, string(b))
+	u.mu.Unlock()
+	<-u.release
+	return []byte(answer), nil
+}
+
+func (u *updateRuns) got() string {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return strings.Join(u.seen, " ")
+}
+
+func TestUpdateReplacesYtDlpBetweenRuns(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "yt-dlp")
+	os.WriteFile(bin, []byte("2026.10.26"), 0o755)
+	u := &updateRuns{updated: make(chan string, 1), release: make(chan struct{}), result: "Updated yt-dlp to stable@2026.11.23"}
+	r := &Resolver{Bin: bin, Run: u.run}
+	first := make(chan error)
+	go func() { _, err := r.Stream(context.Background(), "playing0000"); first <- err }()
+	for u.got() == "" {
+		time.Sleep(time.Millisecond)
+	}
+	updated := make(chan struct{})
+	go func() { r.update(context.Background()); close(updated) }()
+
+	// The download runs on a copy while the trailer plays on with the file it reads.
+	if got := <-u.updated; got == bin {
+		t.Fatal("yt-dlp -U ran on the file in use")
+	}
+	waitQueued(t, r, 1) // the swap, waiting for the trailer
+	second := make(chan error)
+	go func() { _, err := r.Stream(context.Background(), "pressed0000"); second <- err }()
+	waitQueued(t, r, 2)
+	if b, _ := os.ReadFile(bin); string(b) != "2026.10.26" {
+		t.Fatalf("replaced under a running yt-dlp: %s", b)
+	}
+	close(u.release)
+	if err := <-first; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-second; err != nil {
+		t.Fatal(err)
+	}
+	<-updated
+	if got := u.got(); got != "2026.10.26 2026.11.23" {
+		t.Fatalf("releases read: %q", got)
+	}
+	if _, err := os.Stat(bin + ".next"); !os.IsNotExist(err) {
+		t.Fatalf("copy left: %v", err)
+	}
+}
+
+func TestUpdateUpToDateOrFailedKeepsYtDlp(t *testing.T) {
+	for _, result := range []string{"yt-dlp is up to date (stable@2026.11.23)", "fails"} {
+		bin := filepath.Join(t.TempDir(), "yt-dlp")
+		os.WriteFile(bin, []byte("2026.11.23"), 0o755)
+		u := &updateRuns{updated: make(chan string, 1), release: make(chan struct{}), result: result}
+		r := &Resolver{Bin: bin, Run: u.run}
+		if result == "fails" {
+			r.Run = func(context.Context, string, ...string) ([]byte, error) {
+				return nil, errors.New("exit status 1: ERROR: Unable to download")
+			}
+		}
+		r.update(context.Background())
+		if b, _ := os.ReadFile(bin); string(b) != "2026.11.23" {
+			t.Fatalf("%s: file now %q", result, b)
+		}
+		if _, err := os.Stat(bin + ".next"); !os.IsNotExist(err) {
+			t.Fatalf("%s: copy left: %v", result, err)
+		}
+		r.mu.Lock()
+		q, busy := len(r.queue), r.busy
+		r.mu.Unlock()
+		if q != 0 || busy {
+			t.Fatalf("%s: queue %d busy %v", result, q, busy)
+		}
 	}
 }

@@ -5,6 +5,7 @@
 package youtube
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -70,6 +71,8 @@ type flight struct {
 
 	search  *searchJob // a search, not a video's stream
 	results []Result
+
+	swap func() error // not yt-dlp: a new release takes the place of the current one
 }
 
 type searchEntry struct {
@@ -184,7 +187,7 @@ func (r *Resolver) resolve(f *flight, urgent bool) {
 		r.mu.Lock()
 		delete(r.flights, f.key)
 		switch {
-		case f.err != nil:
+		case f.err != nil, f.swap != nil:
 		case f.search != nil:
 			now := r.Now()
 			for k, e := range r.searches {
@@ -202,6 +205,10 @@ func (r *Resolver) resolve(f *flight, urgent bool) {
 		close(f.done)
 	}()
 
+	if f.swap != nil {
+		f.err = f.swap()
+		return
+	}
 	// Not tied to a caller: a TV that gives up doesn't waste the run for the next one.
 	ctx, cancel := context.WithTimeout(context.Background(), r.Timeout)
 	defer cancel()
@@ -325,30 +332,76 @@ func copyFile(src, dst string) error {
 	return os.Rename(tmp, dst)
 }
 
-// UpdateLoop runs `yt-dlp -U` now and then every interval: YouTube changes
+// UpdateLoop updates yt-dlp now and then every interval: YouTube changes
 // break old yt-dlp releases within weeks.
 func (r *Resolver) UpdateLoop(ctx context.Context, interval time.Duration) {
 	r.init()
 	for {
-		uctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-		out, err := r.Run(uctx, r.Bin, "--no-config", "-U")
-		cancel()
-		if err != nil {
-			r.Log.Warn("yt-dlp update", "err", err)
-		} else {
-			lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-			r.Log.Info("yt-dlp update", "result", lines[len(lines)-1])
-		}
-		if r.Worker != nil {
-			// The loaded yt-dlp is the old one (or none yet: the update ran first,
-			// not to have the file replaced under a loading worker).
-			r.Worker.Restart()
-			r.Worker.Warm()
-		}
+		r.update(ctx)
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(interval):
 		}
 	}
+}
+
+// update lets a copy of yt-dlp update itself (`yt-dlp -U`, the download)
+// while trailers go on with the current one; a new release takes its place
+// between two yt-dlp runs. yt-dlp reads its modules from its file as it needs
+// them, so a file replaced under a running one broke it: a trailer asked during
+// the update got "bad local file header".
+func (r *Resolver) update(ctx context.Context) {
+	r.init()
+	next := r.Bin + ".next"
+	defer os.Remove(next)
+	if err := copyFile(r.Bin, next); err != nil {
+		r.Log.Warn("yt-dlp update", "err", err)
+		return
+	}
+	uctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	out, err := r.Run(uctx, next, "--no-config", "-U")
+	cancel()
+	if err != nil {
+		r.Log.Warn("yt-dlp update", "err", err)
+		return
+	}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	r.Log.Info("yt-dlp update", "result", lines[len(lines)-1])
+	if !sameFile(r.Bin, next) {
+		err := r.exclusive(ctx, func() error {
+			if r.Worker != nil {
+				r.Worker.Restart() // it has the old one loaded
+			}
+			return os.Rename(next, r.Bin)
+		})
+		if err != nil {
+			r.Log.Warn("yt-dlp update", "err", err)
+		}
+	}
+	if r.Worker != nil {
+		r.Worker.Warm() // the first time: it waited for the update
+	}
+}
+
+// exclusive runs fn while no yt-dlp runs, ahead of the videos and searches
+// waiting for one.
+func (r *Resolver) exclusive(ctx context.Context, fn func() error) error {
+	f := &flight{key: "swap\x00", asked: r.Now(), done: make(chan struct{}), urgent: true, swap: fn}
+	r.mu.Lock()
+	r.queue = append([]*flight{f}, r.queue...)
+	f.callers++
+	r.startNextLocked()
+	r.mu.Unlock()
+	_, err := r.wait(ctx, f, func() ([]Result, error) { return nil, f.err })
+	return err
+}
+
+func sameFile(a, b string) bool {
+	x, err := os.ReadFile(a)
+	if err != nil {
+		return false
+	}
+	y, err := os.ReadFile(b)
+	return err == nil && bytes.Equal(x, y)
 }
