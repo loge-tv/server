@@ -1,4 +1,4 @@
-// Package api serves detected segments, files, trailers and recommendations to Loge clients.
+// Package api serves detected segments, files, trailers and recommendations to Sepia TV clients.
 package api
 
 import (
@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/loge-tv/server/internal/store"
+	"github.com/sepiatv/server/internal/store"
 )
 
 // Checker reports whether a Plex token may use our Plex server.
@@ -67,7 +67,7 @@ func (s *Server) Handler() http.Handler {
 	return cors(mux)
 }
 
-// cors lets the Loge web client call /v1 from a browser. Auth is the
+// cors lets the Sepia TV web client call /v1 from a browser. Auth is the
 // X-Plex-Token header (no cookies), so any origin is fine; preflights carry
 // no token and are answered without auth.
 func cors(next http.Handler) http.Handler {

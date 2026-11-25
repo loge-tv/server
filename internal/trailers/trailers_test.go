@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/loge-tv/server/internal/tmdb"
-	"github.com/loge-tv/server/internal/youtube"
+	"github.com/sepiatv/server/internal/tmdb"
+	"github.com/sepiatv/server/internal/youtube"
 )
 
 type fakeTMDB struct {

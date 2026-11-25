@@ -3,7 +3,7 @@ package trailers
 import (
 	"testing"
 
-	"github.com/loge-tv/server/internal/youtube"
+	"github.com/sepiatv/server/internal/youtube"
 )
 
 // Names and lengths of videos YouTube's search found for the titles of a

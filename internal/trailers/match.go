@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/loge-tv/server/internal/youtube"
+	"github.com/sepiatv/server/internal/youtube"
 )
 
 // Title is what the search's videos are matched against.

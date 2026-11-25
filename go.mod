@@ -1,4 +1,4 @@
-module github.com/loge-tv/server
+module github.com/sepiatv/server
 
 go 1.27.4
 

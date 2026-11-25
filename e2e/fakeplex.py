@@ -1,4 +1,4 @@
-"""A Plex stand-in for Loge Server tests: one show library with the episodes of
+"""A Plex stand-in for Sepia Server tests: one show library with the episodes of
 manifest.json. Only the token in PLEX_TOKEN gets in (others: 401).
 
 Usage: python3 -I fakeplex.py <manifest.json> [port]

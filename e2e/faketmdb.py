@@ -1,4 +1,4 @@
-"""A TMDB v3 stand-in for Loge Server tests: a few canned answers; only the
+"""A TMDB v3 stand-in for Sepia Server tests: a few canned answers; only the
 api_key in TMDB_KEY gets in (others: 401, like TMDB). Logs every path asked.
 
 Usage: python3 -I faketmdb.py [port]

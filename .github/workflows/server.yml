@@ -39,7 +39,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
-      - run: docker build -t loge-server:e2e .
+      - run: docker build -t sepia-server:e2e .
       - run: e2e/run.sh 6
 
   image:

@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/loge-tv/server/internal/media"
-	"github.com/loge-tv/server/internal/plex"
-	"github.com/loge-tv/server/internal/store"
+	"github.com/sepiatv/server/internal/media"
+	"github.com/sepiatv/server/internal/plex"
+	"github.com/sepiatv/server/internal/store"
 )
 
 func ip(i int) *int { return &i }

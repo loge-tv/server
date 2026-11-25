@@ -16,11 +16,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/loge-tv/server/internal/fingerprint"
-	"github.com/loge-tv/server/internal/match"
-	"github.com/loge-tv/server/internal/media"
-	"github.com/loge-tv/server/internal/plex"
-	"github.com/loge-tv/server/internal/store"
+	"github.com/sepiatv/server/internal/fingerprint"
+	"github.com/sepiatv/server/internal/match"
+	"github.com/sepiatv/server/internal/media"
+	"github.com/sepiatv/server/internal/plex"
+	"github.com/sepiatv/server/internal/store"
 )
 
 type Config struct {

@@ -11,14 +11,14 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/loge-tv/server/internal/analyzer"
-	"github.com/loge-tv/server/internal/fingerprint"
-	"github.com/loge-tv/server/internal/match"
-	"github.com/loge-tv/server/internal/media"
-	"github.com/loge-tv/server/internal/store"
+	"github.com/sepiatv/server/internal/analyzer"
+	"github.com/sepiatv/server/internal/fingerprint"
+	"github.com/sepiatv/server/internal/match"
+	"github.com/sepiatv/server/internal/media"
+	"github.com/sepiatv/server/internal/store"
 )
 
-// debugCredits: loge-server credits <ratingKey>... — finds end credits from
+// debugCredits: sepia-server credits <ratingKey>... — finds end credits from
 // the end scan (scanning if needed, cached in DB_PATH) and prints them.
 func debugCredits(args []string) error {
 	st, err := store.Open(env("DB_PATH", "/data/detector.db"))
@@ -47,11 +47,11 @@ func debugCredits(args []string) error {
 	return nil
 }
 
-// debugFrames: loge-server frames <ratingKey> <from> <to> — the cached end
+// debugFrames: sepia-server frames <ratingKey> <from> <to> — the cached end
 // scan keyframes in [from, to]: time, black percent, text lines and rows.
 func debugFrames(args []string) error {
 	if len(args) != 3 {
-		return errors.New("usage: loge-server frames <ratingKey> <from> <to>")
+		return errors.New("usage: sepia-server frames <ratingKey> <from> <to>")
 	}
 	st, err := store.Open(env("DB_PATH", "/data/detector.db"))
 	if err != nil {
@@ -79,12 +79,12 @@ func printFrames(frames []media.Frame, from, to float64) {
 	}
 }
 
-// debugScan: loge-server scan <ratingKey> <from> <to> — decodes the keyframes
+// debugScan: sepia-server scan <ratingKey> <from> <to> — decodes the keyframes
 // in [from, to] of the item's file now (nothing is stored) and prints them
 // like frames.
 func debugScan(args []string) error {
 	if len(args) != 3 {
-		return errors.New("usage: loge-server scan <ratingKey> <from> <to>")
+		return errors.New("usage: sepia-server scan <ratingKey> <from> <to>")
 	}
 	st, err := store.Open(env("DB_PATH", "/data/detector.db"))
 	if err != nil {
@@ -106,7 +106,7 @@ func debugScan(args []string) error {
 	return nil
 }
 
-// debugSegments: loge-server segments — every item with its segments as TSV
+// debugSegments: sepia-server segments — every item with its segments as TSV
 // (show, season, episode, title, key, type, start, end, source), sorted, to
 // diff results before and after a change of the matching rules.
 func debugSegments(args []string) error {
@@ -146,12 +146,12 @@ func debugSegments(args []string) error {
 	return nil
 }
 
-// debugMatch: loge-server match intro|credits <ratingKey> <ratingKey>...
+// debugMatch: sepia-server match intro|credits <ratingKey> <ratingKey>...
 // Prints, for each pair, the best shared run with relaxed length limits
 // and the bit-difference histogram at that alignment.
 func debugMatch(args []string) error {
 	if len(args) < 3 {
-		return errors.New("usage: loge-server match intro|credits <ratingKey> <ratingKey>...")
+		return errors.New("usage: sepia-server match intro|credits <ratingKey> <ratingKey>...")
 	}
 	st, err := store.Open(env("DB_PATH", "/data/detector.db"))
 	if err != nil {

@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/loge-tv/server/internal/plex"
+	"github.com/sepiatv/server/internal/plex"
 )
 
 // fakeFiles: item 1 has part 11 (a file on disk) and part 12 (gone from

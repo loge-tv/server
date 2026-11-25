@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/loge-tv/server/internal/plex"
+	"github.com/sepiatv/server/internal/plex"
 )
 
 // FileFinder finds the file of an item's part on disk, asking Plex with the

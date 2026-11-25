@@ -1,10 +1,12 @@
-# Loge Server next to your Plex: copy .env.example to .env, fill it in, then
+# Sepia Server next to your Plex: copy .env.example to .env, fill it in, then
 #   docker compose up -d
 # See "Install with Docker Compose" in README.md.
 services:
+  # The service and volume names are from before the rename: installs from then
+  # update in place and keep their database.
   loge-server:
-    image: ghcr.io/sepiatv/loge-server:main
-    container_name: loge-server
+    image: ghcr.io/sepiatv/sepia-server:main
+    container_name: sepia-server
     restart: unless-stopped
     ports:
       - "8080:8080"

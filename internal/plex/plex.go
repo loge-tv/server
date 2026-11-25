@@ -83,8 +83,9 @@ func (c *Client) get(ctx context.Context, path string, token string, q url.Value
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("X-Plex-Token", token)
+	// The identifier is from before the rename: Plex keeps a device per identifier.
 	req.Header.Set("X-Plex-Client-Identifier", "loge-server")
-	req.Header.Set("X-Plex-Product", "Loge Server")
+	req.Header.Set("X-Plex-Product", "Sepia Server")
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return err

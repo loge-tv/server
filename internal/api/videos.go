@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/loge-tv/server/internal/tmdb"
+	"github.com/sepiatv/server/internal/tmdb"
 )
 
 // VideoFinder gives TMDB's trailers of a movie or show.

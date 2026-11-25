@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/loge-tv/server/internal/store"
-	"github.com/loge-tv/server/internal/tmdb"
+	"github.com/sepiatv/server/internal/store"
+	"github.com/sepiatv/server/internal/tmdb"
 )
 
 type fakeNamer struct{ asked []string }
