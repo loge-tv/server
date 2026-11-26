@@ -41,7 +41,7 @@ func setupStreams(t *testing.T, streams StreamFinder) *httptest.Server {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	srv := httptest.NewServer((&Server{Store: st, Auth: &fakeAuth{}, Streams: streams, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	srv := httptest.NewServer((&Server{Store: st, Auth: &fakeAuth{}, Streams: streams, Log: slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug})),
 		TTL: time.Minute, DenyTTL: time.Minute}).Handler())
 	t.Cleanup(srv.Close)
 	return srv

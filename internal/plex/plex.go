@@ -107,6 +107,26 @@ type StatusError struct {
 
 func (e *StatusError) Error() string { return fmt.Sprintf("plex %s: HTTP %d", e.Path, e.Code) }
 
+// Identity is how plex.tv and the apps know this server.
+type Identity struct {
+	MachineIdentifier string `json:"machineIdentifier"`
+	FriendlyName      string `json:"friendlyName"`
+}
+
+// Identity asks the server who it is.
+func (c *Client) Identity(ctx context.Context) (Identity, error) {
+	var r struct {
+		MediaContainer Identity `json:"MediaContainer"`
+	}
+	if err := c.get(ctx, "/", c.Token, nil, &r); err != nil {
+		return Identity{}, err
+	}
+	if r.MediaContainer.MachineIdentifier == "" {
+		return Identity{}, errors.New("plex /: no machineIdentifier")
+	}
+	return r.MediaContainer, nil
+}
+
 // Sections lists movie and show libraries.
 func (c *Client) Sections(ctx context.Context) ([]Directory, error) {
 	var r container

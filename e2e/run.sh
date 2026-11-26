@@ -2,8 +2,8 @@
 # Compose smoke test: the tracked compose.yaml with e2e/compose.e2e.yaml. A
 # generated season (3 episodes, a shared intro and shared credits, tones
 # everywhere else) goes through a fake Plex; the analysis runs RUNS times on a
-# fresh volume and must never crash. The first run also checks auth,
-# /v1/files with Range, TMDB with a key (fake TMDB) and without one (404).
+# fresh volume and must never crash. The first run also checks auth, /v1/info
+# and the root page, /v1/files with Range, TMDB with a key (fake TMDB) and without one (404).
 #
 # Usage: e2e/run.sh [RUNS]   image: $E2E_IMAGE (default sepia-server:e2e)
 #
@@ -15,7 +15,8 @@ cd "$(dirname "$0")/.."
 RUNS=${1:-1}
 export E2E_IMAGE=${E2E_IMAGE:-sepia-server:e2e}
 export PLEX_URL=http://fakeplex:32400 PLEX_TOKEN=e2e-plex-token MEDIA_DIR=./e2e/media MEDIA_PATH_IN_PLEX=/media
-API=http://127.0.0.1:8080
+export SEPIA_PORT=32420
+API=http://127.0.0.1:$SEPIA_PORT
 T="X-Plex-Token: $PLEX_TOKEN"
 
 dc() { docker compose -p sepia-e2e -f compose.yaml -f e2e/compose.e2e.yaml "$@"; }
@@ -76,8 +77,11 @@ for n in $(seq 1 "$RUNS"); do
 	echo "ok: run $n analysed, segments as expected"
 
 	if [ "$n" = 1 ]; then
-		expect "segments, wrong token" 401 "" -H "X-Plex-Token: nope" "$API/v1/segments/101"
-		expect "segments, no token" 401 "" "$API/v1/segments/101"
+		expect "segments, wrong token" 401 '"code":"token_rejected"' -H "X-Plex-Token: nope" "$API/v1/segments/101"
+		expect "segments, no token" 401 '"code":"token_missing"' "$API/v1/segments/101"
+		expect "info, no token" 200 '"machineIdentifier":"e2e-machine-id"' "$API/v1/info"
+		expect "root page" 200 'https://sepiatv.com/connect#url=http%3A%2F%2F127.0.0.1%3A32420' "$API/"
+		expect "root page, the Plex name" 200 'E2E Plex' "$API/"
 		expect "files, Range" 206 "" -r 1000-1999 -H "$T" "$API/v1/files/101/201/file.mkv"
 		cmp -s /tmp/sepia-e2e-body <(tail -c +1001 "e2e/media/Test Show/Season 01/Test Show - S01E01.mkv" | head -c 1000) ||
 			fail "files, Range: not the file's bytes"

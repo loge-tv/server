@@ -47,7 +47,7 @@ func setupWith(t *testing.T, files FileFinder) (*httptest.Server, *fakeAuth) {
 		t.Fatal(err)
 	}
 	fa := &fakeAuth{}
-	srv := httptest.NewServer((&Server{Store: st, Auth: fa, Files: files, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	srv := httptest.NewServer((&Server{Store: st, Auth: fa, Files: files, Log: slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug})),
 		TTL: time.Minute, DenyTTL: time.Minute}).Handler())
 	t.Cleanup(srv.Close)
 	return srv, fa

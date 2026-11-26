@@ -44,6 +44,8 @@ class H(BaseHTTPRequestHandler):
         token = self.headers.get("X-Plex-Token") or parse_qs(u.query).get("X-Plex-Token", [""])[0]
         if token != TOKEN:
             return self.send(401, {})
+        if u.path == "/":
+            return self.send(200, {"machineIdentifier": "e2e-machine-id", "friendlyName": "E2E Plex"})
         if u.path == "/library/sections":
             return self.send(200, {"Directory": [{"key": "2", "type": "show", "title": "Shows"}]})
         if u.path == "/library/sections/2/all":

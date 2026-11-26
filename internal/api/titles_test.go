@@ -36,7 +36,7 @@ func setupNames(t *testing.T, names Namer) *httptest.Server {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	s := &Server{Store: st, Auth: &fakeAuth{}, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), TTL: time.Minute, DenyTTL: time.Minute}
+	s := &Server{Store: st, Auth: &fakeAuth{}, Log: slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug})), TTL: time.Minute, DenyTTL: time.Minute}
 	if names != nil {
 		s.Names = names
 	}

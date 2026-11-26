@@ -31,8 +31,13 @@ type Server struct {
 	Names   Namer        // nil (no TMDB key): /v1/titles answers 404
 	Streams StreamFinder // nil (no yt-dlp): /v1/videos/{key}/stream answers 404
 	Log     *slog.Logger
-	TTL     time.Duration // cache of accepted tokens and of resolved files
-	DenyTTL time.Duration // cache of rejected tokens
+	Version string      // shown in /v1/info and on the root page
+	Plex    func() Plex // nil or empty: Plex has not answered yet
+	// PublicURL is the address apps should use (PUBLIC_URL); empty: the one a request came to.
+	PublicURL   string
+	MinimalRoot bool          // the root page without the Plex server's name, QR code and links
+	TTL         time.Duration // cache of accepted tokens and of resolved files
+	DenyTTL     time.Duration // cache of rejected tokens
 
 	mu    sync.Mutex
 	cache map[[32]byte]authEntry
@@ -51,6 +56,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("ok\n"))
 	})
+	mux.HandleFunc("GET /{$}", s.root)
+	mux.HandleFunc("GET /v1/info", s.info)
 	mux.Handle("GET /v1/segments/{ratingKey}", s.auth(http.HandlerFunc(s.one)))
 	mux.Handle("GET /v1/segments", s.auth(http.HandlerFunc(s.batch)))
 	mux.Handle("GET /v1/stats", s.auth(http.HandlerFunc(s.stats)))
@@ -64,7 +71,7 @@ func (s *Server) Handler() http.Handler {
 	// GET covers HEAD. {name} is ignored: players like a file name with an extension.
 	mux.Handle("GET /v1/files/{ratingKey}/{partId}", s.auth(http.HandlerFunc(s.file)))
 	mux.Handle("GET /v1/files/{ratingKey}/{partId}/{name}", s.auth(http.HandlerFunc(s.file)))
-	return cors(mux)
+	return s.accessLog(cors(mux))
 }
 
 // cors lets the Sepia TV web client call /v1 from a browser. Auth is the
@@ -83,6 +90,10 @@ func cors(next http.Handler) http.Handler {
 		h.Set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges")
 		h.Set("Access-Control-Max-Age", "86400")
 		if r.Method == http.MethodOptions {
+			// Chrome's preflight for a public page calling a private address.
+			if r.Header.Get("Access-Control-Request-Private-Network") == "true" {
+				h.Set("Access-Control-Allow-Private-Network", "true")
+			}
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -232,7 +243,7 @@ func (s *Server) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := tokenOf(r)
 		if token == "" {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "X-Plex-Token header is required"})
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "X-Plex-Token header is required", "code": "token_missing"})
 			return
 		}
 		ok, err := s.allowed(r.Context(), token)
@@ -242,7 +253,7 @@ func (s *Server) auth(next http.Handler) http.Handler {
 			return
 		}
 		if !ok {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "token has no access to this plex server"})
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "token has no access to this plex server", "code": "token_rejected"})
 			return
 		}
 		next.ServeHTTP(w, r)
