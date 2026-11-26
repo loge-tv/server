@@ -193,6 +193,9 @@ the Plex server's name; `ROOT_PAGE=minimal` leaves only "running" and the versio
 
 ## API
 
+The names `X-Plex-Token`, `ratingKey` and `machineIdentifier` stay as they are: apps ship with
+them. Support for another media server would add neutral fields next to them, never rename these.
+
 All `/v1` endpoints except `/v1/info` need the `X-Plex-Token` header: the token the client
 uses for Plex (`/v1/files` also takes it as the `X-Plex-Token` query parameter,
 for a browser's `<video src>`). The server checks it against the Plex server
