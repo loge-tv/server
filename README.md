@@ -1,6 +1,6 @@
 # Sepia Server
 
-The server part of Sepia TV (formerly Loge Server): intro and credits detection for a
+The server part of Sepia TV: intro and credits detection for a
 Plex library without Plex Pass.
 Sepia TV clients (Apple TV, iPhone, iPad, Mac, Android, Android TV and
 [web](https://github.com/sepiatv/web)) ask it for segments by Plex `ratingKey` and skip them.
@@ -299,7 +299,7 @@ for a browser's `<video src>`). The server checks it against the Plex server
 |---|---|---|
 | `PLEX_URL` | `http://127.0.0.1:32400` | Plex server |
 | `PLEX_TOKEN` | — | token with access to the libraries |
-| `DB_PATH` | `/data/detector.db` | SQLite (the old file name, kept so existing installs keep their data) |
+| `DB_PATH` | `/data/sepia-server.db` | SQLite; a `/data/detector.db` from an install before 0.8.0 is used while there is no new file |
 | `LISTEN` | `:8080` | in the container; `compose.yaml` publishes it as 32420 |
 | `PUBLIC_URL` | — | the address apps reach the server at, for the QR code on `/`; unset: the address the page was opened at (`X-Forwarded-Proto` is honoured) |
 | `ROOT_PAGE` | — | `minimal`: `/` without the Plex server's name, QR code and links |
@@ -324,9 +324,7 @@ for a browser's `<video src>`). The server checks it against the Plex server
 
 GitHub Actions (`.github/workflows/server.yml`) runs `go vet`/`go test` on amd64 and arm64 and
 builds `ghcr.io/sepiatv/sepia-server` for both (`linux/amd64`, `linux/arm64`; Alpine + ffmpeg).
-Releases up to 0.5.1 are `ghcr.io/sepiatv/loge-server`, which gets the same builds for now; up to
-0.4.1 they are arm64 only, and up to 0.3.1 the image was called `detector`. Tag `v<version>`
-publishes `:<version>`.
+Tag `v<version>` publishes `:<version>`; releases from 0.6.0 on are under this name.
 
 ```bash
 go test ./...

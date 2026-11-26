@@ -60,10 +60,7 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          # sepia-server is the new name; loge-server gets the same builds for now.
-          images: |
-            ghcr.io/${{ github.repository_owner }}/sepia-server
-            ghcr.io/${{ github.repository_owner }}/loge-server
+          images: ghcr.io/${{ github.repository_owner }}/sepia-server
           tags: |
             type=match,pattern=v(.*),group=1
             type=sha,prefix=sha-

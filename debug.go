@@ -21,7 +21,7 @@ import (
 // debugCredits: sepia-server credits <ratingKey>... — finds end credits from
 // the end scan (scanning if needed, cached in DB_PATH) and prints them.
 func debugCredits(args []string) error {
-	st, err := store.Open(env("DB_PATH", "/data/detector.db"))
+	st, err := store.Open(dbPath())
 	if err != nil {
 		return err
 	}
@@ -53,7 +53,7 @@ func debugFrames(args []string) error {
 	if len(args) != 3 {
 		return errors.New("usage: sepia-server frames <ratingKey> <from> <to>")
 	}
-	st, err := store.Open(env("DB_PATH", "/data/detector.db"))
+	st, err := store.Open(dbPath())
 	if err != nil {
 		return err
 	}
@@ -86,7 +86,7 @@ func debugScan(args []string) error {
 	if len(args) != 3 {
 		return errors.New("usage: sepia-server scan <ratingKey> <from> <to>")
 	}
-	st, err := store.Open(env("DB_PATH", "/data/detector.db"))
+	st, err := store.Open(dbPath())
 	if err != nil {
 		return err
 	}
@@ -110,7 +110,7 @@ func debugScan(args []string) error {
 // (show, season, episode, title, key, type, start, end, source), sorted, to
 // diff results before and after a change of the matching rules.
 func debugSegments(args []string) error {
-	st, err := store.Open(env("DB_PATH", "/data/detector.db"))
+	st, err := store.Open(dbPath())
 	if err != nil {
 		return err
 	}
@@ -153,7 +153,7 @@ func debugMatch(args []string) error {
 	if len(args) < 3 {
 		return errors.New("usage: sepia-server match intro|credits <ratingKey> <ratingKey>...")
 	}
-	st, err := store.Open(env("DB_PATH", "/data/detector.db"))
+	st, err := store.Open(dbPath())
 	if err != nil {
 		return err
 	}
