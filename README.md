@@ -63,7 +63,7 @@ readable only by a group, add it to the service in `compose.yaml`: `group_add: [
 show no recommendations, trailers or translated catalog titles from this server.
 
 The database (analysis results, the apps' per-show settings) lives in the Docker volume
-`<folder>_loge-server-data` (the name is from before the rename), and `docker compose down`
+`<folder>_sepia-server-data`, and `docker compose down`
 keeps it (`down -v` deletes it).
 
 ### Update
@@ -83,14 +83,21 @@ apps look for it, and no longer on 8080. Apps with the old address saved search 
 the old address working, add `SEPIA_PORT=8080` to `.env`. An install that keeps
 its old `compose.yaml` stays on 8080: it works, but the apps don't find it on their own.
 
-From 0.5.1 or earlier (image `…/loge-server`): first take the new `compose.yaml` into the same
-folder, `loge-server` if you followed this README then. The database's volume is named after the
-folder, so a new folder starts with an empty database. Carry your own changes (more folders,
-`group_add`) over to the new file; the container is then called `sepia-server`.
+From 0.7.0 or earlier: the volume with the database has a new name, and Docker can't rename a
+volume. Take the new `compose.yaml` into the same folder (carry over your own changes: more
+folders, `group_add`) and copy the database before the first start, or the server starts empty
+and analyses the library again:
 
 ```bash
+docker compose down
 curl -fsSLO https://raw.githubusercontent.com/sepiatv/server/main/compose.yaml
+old=$(docker volume ls -q --filter name=loge-server-data)
+docker compose run --rm --no-deps --user 0 -v "$old":/from --entrypoint cp sepia-server -a /from/. /data/
+docker compose up -d
 ```
+
+`$old` must be one volume, the one of this install (`echo "$old"`). It stays as a backup:
+`docker volume rm "$old"` once the apps skip intros as before.
 
 ## How the apps find the server
 

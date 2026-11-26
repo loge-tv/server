@@ -22,14 +22,14 @@ T="X-Plex-Token: $PLEX_TOKEN"
 dc() { docker compose -p sepia-e2e -f compose.yaml -f e2e/compose.e2e.yaml "$@"; }
 fail() {
 	echo "FAIL: $*"
-	dc logs --no-color loge-server | tail -60
+	dc logs --no-color sepia-server | tail -60
 	dc down -v >/dev/null 2>&1
 	exit 1
 }
 crashed() {
 	local logs status
-	logs=$(dc logs --no-color loge-server 2>&1)
-	status=$(docker inspect -f '{{.State.Status}} {{.RestartCount}}' "$(dc ps -aq loge-server)" 2>/dev/null)
+	logs=$(dc logs --no-color sepia-server 2>&1)
+	status=$(docker inspect -f '{{.State.Status}} {{.RestartCount}}' "$(dc ps -aq sepia-server)" 2>/dev/null)
 	if grep -q -E 'panic:|fatal error' <<<"$logs" || [ "$status" != "running 0" ]; then
 		echo "server: $status"
 		return 0
@@ -58,7 +58,7 @@ for n in $(seq 1 "$RUNS"); do
 	done=""
 	for _ in $(seq 1 120); do
 		crashed && fail "run $n: the server crashed"
-		dc logs --no-color loge-server 2>&1 | grep -q 'pass done' && done=1 && break
+		dc logs --no-color sepia-server 2>&1 | grep -q 'pass done' && done=1 && break
 		sleep 2
 	done
 	[ -n "$done" ] || fail "run $n: no analysis pass in 4 minutes"
@@ -93,7 +93,7 @@ for n in $(seq 1 "$RUNS"); do
 		expect "titles" 200 '"title":"Тьма"' -H "$T" "$API/v1/titles?item=tv:0:70523:Dark&language=ru-RU"
 		expect "stream, no yt-dlp" 404 '"configured":false' -H "$T" "$API/v1/videos/vKQi3bBA1y8/stream"
 
-		TMDB_API_KEY= dc up -d loge-server >/dev/null 2>&1 || fail "compose up without a key"
+		TMDB_API_KEY= dc up -d sepia-server >/dev/null 2>&1 || fail "compose up without a key"
 		for _ in $(seq 1 30); do curl -sf "$API/healthz" >/dev/null && break; sleep 1; done
 		expect "recommendations, no key" 404 '"configured":false' -H "$T" "$API/v1/recommendations?seeds=movie:603"
 		expect "videos, no key" 404 '"configured":false' -H "$T" "$API/v1/videos?item=movie:603"

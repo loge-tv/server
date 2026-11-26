@@ -3,7 +3,7 @@
 # the test), no yt-dlp (YouTube wants a sign-in from CI's addresses), and a
 # pass every 5 s (the fake Plex may start after the server).
 services:
-  loge-server:
+  sepia-server:
     image: ${E2E_IMAGE:-sepia-server:e2e}
     restart: "no"
     environment:
