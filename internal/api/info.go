@@ -179,6 +179,9 @@ func (s *Server) accessLog(next http.Handler) http.Handler {
 		t0 := time.Now()
 		sw := &statusWriter{ResponseWriter: w}
 		next.ServeHTTP(sw, r)
+		if sw.code == 0 {
+			sw.code = http.StatusOK
+		}
 		s.Log.Debug("request", "method", r.Method, "path", r.URL.Path, "status", sw.code,
 			"token", tokenOf(r) != "", "took", time.Since(t0).Round(time.Millisecond))
 	})

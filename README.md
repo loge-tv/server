@@ -80,7 +80,8 @@ docker compose up -d
 
 From 0.6.0 or earlier: the new `compose.yaml` publishes the server on port 32420, where the
 apps look for it, and no longer on 8080. Apps with the old address saved search again; to keep
-the old address working, add `SEPIA_PORT=8080` to `.env`.
+the old address working, add `SEPIA_PORT=8080` to `.env`. An install that keeps
+its old `compose.yaml` stays on 8080: it works, but the apps don't find it on their own.
 
 From 0.5.1 or earlier (image `…/loge-server`): first take the new `compose.yaml` into the same
 folder, `loge-server` if you followed this README then. The database's volume is named after the

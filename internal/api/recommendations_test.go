@@ -34,7 +34,7 @@ func setupRecs(t *testing.T, recs Recommender) *httptest.Server {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	srv := httptest.NewServer((&Server{Store: st, Auth: &fakeAuth{}, Recs: recs, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	srv := httptest.NewServer((&Server{Store: st, Auth: &fakeAuth{}, Recs: recs, Log: slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug})),
 		TTL: time.Minute, DenyTTL: time.Minute}).Handler())
 	t.Cleanup(srv.Close)
 	return srv
@@ -115,7 +115,7 @@ func TestVideos(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	srv := httptest.NewServer((&Server{Store: st, Auth: &fakeAuth{}, Videos: fakeVideos{}, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	srv := httptest.NewServer((&Server{Store: st, Auth: &fakeAuth{}, Videos: fakeVideos{}, Log: slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug})),
 		TTL: time.Minute, DenyTTL: time.Minute}).Handler())
 	defer srv.Close()
 	if code, body := get(t, srv.URL+"/v1/videos?item=movie:603", "good"); code != 200 || !contains(body, `"key":"ru-RU-movie"`) {
