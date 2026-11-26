@@ -51,9 +51,9 @@ paths (`D:\Movies\…`), which the server can't open yet.
    `pass done` ends an analysis pass. The first pass goes through the whole library one file at a
    time, at low priority: hours for a big one. Segments appear as items are done.
 
-4. In each Sepia TV app, set the server address to `http://<this machine's address>:8080`.
-   For files outside the home network, the server must be reachable from there too, e.g. behind
-   a reverse proxy with HTTPS.
+4. Open `http://<this machine's address>:32420` in a browser: the page says the server is
+   running and shows a QR code that connects the Sepia TV app. At home the apps usually find the
+   server themselves, see [How the apps find the server](#how-the-apps-find-the-server).
 
 The server runs as user 1000 in the container and must be able to read the files. When they are
 readable only by a group, add it to the service in `compose.yaml`: `group_add: ["<group id>"]`.
@@ -78,6 +78,10 @@ docker compose up -d
 `:main` is the latest build of the main branch. To stay on a release, set the image in
 `compose.yaml` to its version, e.g. `ghcr.io/sepiatv/sepia-server:0.6.0`.
 
+From 0.6.0 or earlier: the new `compose.yaml` publishes the server on port 32420, where the
+apps look for it, and no longer on 8080. Apps with the old address saved search again; to keep
+the old address working, add `SEPIA_PORT=8080` to `.env`.
+
 From 0.5.1 or earlier (image `…/loge-server`): first take the new `compose.yaml` into the same
 folder, `loge-server` if you followed this README then. The database's volume is named after the
 folder, so a new folder starts with an empty database. Carry your own changes (more folders,
@@ -86,6 +90,41 @@ folder, so a new folder starts with an empty database. Carry your own changes (m
 ```bash
 curl -fsSLO https://raw.githubusercontent.com/sepiatv/server/main/compose.yaml
 ```
+
+## How the apps find the server
+
+After the sign-in to Plex, a Sepia TV app looks for the server of that Plex server itself. Nothing
+is registered anywhere: the app asks around, and `GET /v1/info` (no token) tells it that this is a
+Sepia Server and which Plex server it works for.
+
+1. **The same machine as Plex, port 32420.** The app takes the addresses Plex has for its server
+   and asks `http://<address>:32420/v1/info`. This is why `compose.yaml` publishes 32420: with
+   the server next to Plex, nothing else is needed at home.
+2. **The local network (mDNS / Bonjour).** The server announces itself as `_sepia-server._tcp`
+   with the Plex server's identifier and its own version. An announcement leaves a container only
+   in the host's network, so with the default `compose.yaml` this does nothing, and the server
+   just goes on. To turn it on:
+   - Docker (Linux): in `compose.yaml` replace `ports:` with `network_mode: host` and add
+     `LISTEN: ":32420"` under `environment:`. The server is then on the host's network, so
+     `PLEX_URL` can be `http://127.0.0.1:32400` when Plex is on the same machine.
+   - Kubernetes: `hostNetwork: true` on the pod and `LISTEN=:32420`.
+   - The announcement names the port of `LISTEN`; when the server is reached on another one, set
+     `MDNS_PORT`. `MDNS=off` turns the announcement off.
+3. **By hand.** The page at the server's address (`GET /`) shows a QR code and a link, both with
+   the server's address inside; or type the address into the app's settings. The address is
+   `PUBLIC_URL` when set, otherwise the one the page was opened at.
+
+### Outside the home network
+
+The apps send the Plex token with every request, so over the internet the server needs HTTPS:
+put it behind a reverse proxy with a certificate and set `PUBLIC_URL` to that address
+(`https://sepia.example.com`), which is then what the QR code gives the apps. The apps keep a
+plain `http://` address on their own only for home addresses (private IPv4 and IPv6 ranges,
+`.local` names); for any other they ask for an `https://` one, or for an explicit confirmation
+when the address was typed in.
+
+The page at `/` is open to anyone who can reach the address. It has no secrets, but it does show
+the Plex server's name; `ROOT_PAGE=minimal` leaves only "running" and the version.
 
 ## How it works
 
@@ -153,7 +192,7 @@ curl -fsSLO https://raw.githubusercontent.com/sepiatv/server/main/compose.yaml
 
 ## API
 
-All `/v1` endpoints need the `X-Plex-Token` header: the token the client
+All `/v1` endpoints except `/v1/info` need the `X-Plex-Token` header: the token the client
 uses for Plex (`/v1/files` also takes it as the `X-Plex-Token` query parameter,
 for a browser's `<video src>`). The server checks it against the Plex server
 (`/library/sections`) and caches the answer for 10 minutes (rejections for 1).
@@ -165,6 +204,16 @@ for a browser's `<video src>`). The server checks it against the Plex server
   `segments`; not analysed yet (or unknown key) → also `"analyzed": false`.
 - `GET /v1/segments?ratingKeys=1,2,3` (≤ 500) →
   `{"items":[<same object as above>, …]}` in the order asked.
+- `GET /` → a page for people: the server is running, its version, the Plex server's name, and a
+  QR code with `https://sepiatv.com/connect#url=<address>` (apps open it as an app link; the
+  address is in the fragment and is not sent to that site) plus the link
+  `sepiatv://server?url=<address>`. `<address>` is percent-encoded, without a trailing slash.
+- `GET /v1/info`, no token → `{"product":"Sepia Server","version":"0.7.0","machineIdentifier":"…"}`.
+  `machineIdentifier` is the Plex server's (`clientIdentifier` in plex.tv's resources); it is
+  absent until Plex has answered the server once, which means "ask again", not "another server".
+  `version` is the release, or `main-<commit>` for builds of the main branch.
+- Every other `/v1/*` needs a Plex token; without one or with one that can't use this Plex
+  server the answer is 401 with `"code"`: `token_missing` or `token_rejected`.
 - `GET /v1/stats` → counts of analysed items and found segments.
 - Client settings per show (its ratingKey) or movie — an opaque JSON object
   the server stores as is (own table, untouched by library sync):
@@ -247,7 +296,11 @@ for a browser's `<video src>`). The server checks it against the Plex server
 | `PLEX_URL` | `http://127.0.0.1:32400` | Plex server |
 | `PLEX_TOKEN` | — | token with access to the libraries |
 | `DB_PATH` | `/data/detector.db` | SQLite (the old file name, kept so existing installs keep their data) |
-| `LISTEN` | `:8080` | |
+| `LISTEN` | `:8080` | in the container; `compose.yaml` publishes it as 32420 |
+| `PUBLIC_URL` | — | the address apps reach the server at, for the QR code on `/`; unset: the address the page was opened at (`X-Forwarded-Proto` is honoured) |
+| `ROOT_PAGE` | — | `minimal`: `/` without the Plex server's name, QR code and links |
+| `MDNS` | on | `off`: don't announce `_sepia-server._tcp` on the local network |
+| `MDNS_PORT` | port of `LISTEN` | the port in the announcement |
 | `POLL_INTERVAL` | `15m` | |
 | `ANALYZE` | `true` | `false` serves the API only |
 | `ONLY_PATH` | — | analyse only items whose path contains this |
@@ -261,7 +314,7 @@ for a browser's `<video src>`). The server checks it against the Plex server
 | `VM_MEM_QUERY` | `node_memory_MemAvailable_bytes{node="raspberrypi5"}` | |
 | `MIN_MEM_AVAILABLE_MB` | `400` | |
 | `FFMPEG`, `FFMPEG_NICE`, `FFMPEG_TIMEOUT` | `ffmpeg`, `15`, `15m` | |
-| `LOG_LEVEL` | `info` | `debug` logs every decode |
+| `LOG_LEVEL` | `info` | `debug` logs every decode and every request: method, path without the query, status, whether a token came (never the token), time taken |
 
 ## Build
 

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -15,11 +16,13 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/sepiatv/server/internal/analyzer"
 	"github.com/sepiatv/server/internal/api"
+	"github.com/sepiatv/server/internal/discovery"
 	"github.com/sepiatv/server/internal/media"
 	"github.com/sepiatv/server/internal/plex"
 	"github.com/sepiatv/server/internal/store"
@@ -27,6 +30,10 @@ import (
 	"github.com/sepiatv/server/internal/trailers"
 	"github.com/sepiatv/server/internal/youtube"
 )
+
+// version is set at build time (-ldflags -X main.version=…): the release tag
+// without "v", or main-<sha>.
+var version = "dev"
 
 func env(k, def string) string {
 	if v := os.Getenv(k); v != "" {
@@ -135,9 +142,20 @@ func run(log *slog.Logger) error {
 		videos = &trailers.Finder{TMDB: c, YouTube: search, Log: log}
 	}
 
+	listen := env("LISTEN", ":8080")
+	var ident atomic.Pointer[plex.Identity]
+	go identify(ctx, px, &ident, log, listen)
+
 	srv := &http.Server{
-		Addr:              env("LISTEN", ":8080"),
-		Handler:           (&api.Server{Store: st, Auth: px, Files: px, Recs: recs, Videos: videos, Names: names, Streams: streams, Log: log, TTL: 10 * time.Minute, DenyTTL: time.Minute}).Handler(),
+		Addr: listen,
+		Handler: (&api.Server{Store: st, Auth: px, Files: px, Recs: recs, Videos: videos, Names: names, Streams: streams, Log: log, TTL: 10 * time.Minute, DenyTTL: time.Minute,
+			Version: version, PublicURL: os.Getenv("PUBLIC_URL"), MinimalRoot: os.Getenv("ROOT_PAGE") == "minimal",
+			Plex: func() api.Plex {
+				if id := ident.Load(); id != nil {
+					return api.Plex{MachineIdentifier: id.MachineIdentifier, Name: id.FriendlyName}
+				}
+				return api.Plex{}
+			}}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go func() {
@@ -148,11 +166,54 @@ func run(log *slog.Logger) error {
 	}()
 	go loop(ctx, an, st, log, envDur("POLL_INTERVAL", 15*time.Minute), os.Getenv("ANALYZE") != "false")
 
-	log.Info("listening", "addr", srv.Addr)
+	log.Info("listening", "addr", srv.Addr, "version", version)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil
+}
+
+// identify learns which Plex server this is (for /v1/info and the root page),
+// retrying until Plex answers, then announces the server on the local network
+// (MDNS=off: no) and keeps the name fresh. The announcement names the port of
+// LISTEN, or MDNS_PORT when the server is reached on another one. It is a
+// convenience: when it can't start (no multicast in a container's own network,
+// port 5353 taken), the server goes on without it.
+func identify(ctx context.Context, px *plex.Client, ident *atomic.Pointer[plex.Identity], log *slog.Logger, listen string) {
+	wait := 5 * time.Second
+	announced := false
+	for {
+		c, cancel := context.WithTimeout(ctx, 15*time.Second)
+		id, err := px.Identity(c)
+		cancel()
+		if err == nil {
+			ident.Store(&id)
+			wait = time.Hour
+			if !announced && os.Getenv("MDNS") != "off" {
+				announced = true
+				port, _ := strconv.Atoi(os.Getenv("MDNS_PORT"))
+				if port == 0 {
+					if _, p, err := net.SplitHostPort(listen); err == nil {
+						port, _ = strconv.Atoi(p)
+					}
+				}
+				if stop, err := discovery.Announce(id.FriendlyName, id.MachineIdentifier, version, port); err != nil {
+					log.Info("not announced on the local network", "err", err)
+				} else {
+					log.Info("announced on the local network", "service", discovery.Service, "port", port)
+					defer stop()
+				}
+			}
+		} else if ident.Load() == nil {
+			log.Warn("plex identity", "err", err)
+			wait = min(wait*2, time.Minute)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(wait):
+		}
+	}
 }
 
 func loop(ctx context.Context, an *analyzer.Analyzer, st *store.Store, log *slog.Logger, every time.Duration, analyze bool) {
