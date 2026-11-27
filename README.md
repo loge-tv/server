@@ -83,27 +83,6 @@ apps look for it, and no longer on 8080. Apps with the old address saved search 
 the old address working, add `SEPIA_PORT=8080` to `.env`. An install that keeps
 its old `compose.yaml` stays on 8080: it works, but the apps don't find it on their own.
 
-From 0.8.0 or earlier: the database file and its volume have new names, and neither is renamed
-for you. Without the steps below the server starts with an empty database and analyses the
-library again (the old one stays where it was). Take the new `compose.yaml` into the same folder
-(carry over your own changes: more folders, `group_add`), then:
-
-```bash
-docker compose down
-curl -fsSLO https://raw.githubusercontent.com/sepiatv/server/main/compose.yaml
-# From 0.7.0 or earlier only: copy the old volume into the new one.
-old=$(docker volume ls -q --filter name=loge-server-data)
-docker compose run --rm --no-deps --user 0 -v "$old":/from --entrypoint cp sepia-server -a /from/. /data/
-# Give the database file its new name.
-docker compose run --rm --no-deps --entrypoint sh sepia-server -c \
-  'cd /data && for f in detector.db*; do mv "$f" "sepia-server.db${f#detector.db}"; done'
-docker compose up -d
-```
-
-`$old` must be one volume, the one of this install (`echo "$old"`). It stays as a backup:
-`docker volume rm "$old"` once the apps skip intros as before. The server also shows up in your
-Plex account's devices under a new entry; the old one, "loge-server", can be removed there.
-
 ## How the apps find the server
 
 After the sign-in to Plex, a Sepia TV app looks for the server of that Plex server itself. Nothing
