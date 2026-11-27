@@ -25,7 +25,7 @@ RUN apk add --no-cache ffmpeg ca-certificates tzdata python3 \
  && rm /tmp/SUMS
 # The database's dir belongs to sepia (uid 1000, as before the rename): a fresh Docker
 # volume on /data takes the image dir's owner, and a root-owned one can't take
-# /data/detector.db.
+# /data/sepia-server.db.
 RUN install -d -o sepia -g sepia /data
 COPY --from=build /sepia-server /usr/local/bin/sepia-server
 USER 1000

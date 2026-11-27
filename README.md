@@ -1,6 +1,6 @@
 # Sepia Server
 
-The server part of Sepia TV (formerly Loge Server): intro and credits detection for a
+The server part of Sepia TV: intro and credits detection for a
 Plex library without Plex Pass.
 Sepia TV clients (Apple TV, iPhone, iPad, Mac, Android, Android TV and
 [web](https://github.com/sepiatv/web)) ask it for segments by Plex `ratingKey` and skip them.
@@ -63,7 +63,7 @@ readable only by a group, add it to the service in `compose.yaml`: `group_add: [
 show no recommendations, trailers or translated catalog titles from this server.
 
 The database (analysis results, the apps' per-show settings) lives in the Docker volume
-`<folder>_loge-server-data` (the name is from before the rename), and `docker compose down`
+`<folder>_sepia-server-data`, and `docker compose down`
 keeps it (`down -v` deletes it).
 
 ### Update
@@ -83,14 +83,21 @@ apps look for it, and no longer on 8080. Apps with the old address saved search 
 the old address working, add `SEPIA_PORT=8080` to `.env`. An install that keeps
 its old `compose.yaml` stays on 8080: it works, but the apps don't find it on their own.
 
-From 0.5.1 or earlier (image `…/loge-server`): first take the new `compose.yaml` into the same
-folder, `loge-server` if you followed this README then. The database's volume is named after the
-folder, so a new folder starts with an empty database. Carry your own changes (more folders,
-`group_add`) over to the new file; the container is then called `sepia-server`.
+From 0.7.0 or earlier: the volume with the database has a new name, and Docker can't rename a
+volume. Take the new `compose.yaml` into the same folder (carry over your own changes: more
+folders, `group_add`) and copy the database before the first start, or the server starts empty
+and analyses the library again:
 
 ```bash
+docker compose down
 curl -fsSLO https://raw.githubusercontent.com/sepiatv/server/main/compose.yaml
+old=$(docker volume ls -q --filter name=loge-server-data)
+docker compose run --rm --no-deps --user 0 -v "$old":/from --entrypoint cp sepia-server -a /from/. /data/
+docker compose up -d
 ```
+
+`$old` must be one volume, the one of this install (`echo "$old"`). It stays as a backup:
+`docker volume rm "$old"` once the apps skip intros as before.
 
 ## How the apps find the server
 
@@ -299,7 +306,7 @@ for a browser's `<video src>`). The server checks it against the Plex server
 |---|---|---|
 | `PLEX_URL` | `http://127.0.0.1:32400` | Plex server |
 | `PLEX_TOKEN` | — | token with access to the libraries |
-| `DB_PATH` | `/data/detector.db` | SQLite (the old file name, kept so existing installs keep their data) |
+| `DB_PATH` | `/data/sepia-server.db` | SQLite; a `/data/detector.db` from an install before 0.8.0 is used while there is no new file |
 | `LISTEN` | `:8080` | in the container; `compose.yaml` publishes it as 32420 |
 | `PUBLIC_URL` | — | the address apps reach the server at, for the QR code on `/`; unset: the address the page was opened at (`X-Forwarded-Proto` is honoured) |
 | `ROOT_PAGE` | — | `minimal`: `/` without the Plex server's name, QR code and links |
@@ -324,9 +331,7 @@ for a browser's `<video src>`). The server checks it against the Plex server
 
 GitHub Actions (`.github/workflows/server.yml`) runs `go vet`/`go test` on amd64 and arm64 and
 builds `ghcr.io/sepiatv/sepia-server` for both (`linux/amd64`, `linux/arm64`; Alpine + ffmpeg).
-Releases up to 0.5.1 are `ghcr.io/sepiatv/loge-server`, which gets the same builds for now; up to
-0.4.1 they are arm64 only, and up to 0.3.1 the image was called `detector`. Tag `v<version>`
-publishes `:<version>`.
+Tag `v<version>` publishes `:<version>`; releases from 0.6.0 on are under this name.
 
 ```bash
 go test ./...

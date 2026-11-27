@@ -2,9 +2,7 @@
 #   docker compose up -d
 # See "Install with Docker Compose" in README.md.
 services:
-  # The service and volume names are from before the rename: installs from then
-  # update in place and keep their database.
-  loge-server:
+  sepia-server:
     image: ghcr.io/sepiatv/sepia-server:main
     container_name: sepia-server
     restart: unless-stopped
@@ -21,9 +19,9 @@ services:
       # https://sepia.example.com. Unset: the address the page was opened at.
       PUBLIC_URL: ${PUBLIC_URL:-}
     volumes:
-      - loge-server-data:/data
+      - sepia-server-data:/data
       # The library, read-only, at the path Plex shows for its files.
       - ${MEDIA_DIR:?MEDIA_DIR is not set, see .env.example}:${MEDIA_PATH_IN_PLEX:-${MEDIA_DIR}}:ro
 
 volumes:
-  loge-server-data:
+  sepia-server-data:
