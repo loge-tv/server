@@ -42,24 +42,6 @@ func env(k, def string) string {
 	return def
 }
 
-// dbPath is DB_PATH, or /data/sepia-server.db; an install from before the
-// rename keeps its /data/detector.db until that file is moved.
-func dbPath() string {
-	if p := os.Getenv("DB_PATH"); p != "" {
-		return p
-	}
-	return pickDB("/data/sepia-server.db", "/data/detector.db")
-}
-
-func pickDB(now, old string) string {
-	if _, err := os.Stat(now); err != nil {
-		if _, err := os.Stat(old); err == nil {
-			return old
-		}
-	}
-	return now
-}
-
 func envDur(k string, def time.Duration) time.Duration {
 	if v, err := time.ParseDuration(os.Getenv(k)); err == nil {
 		return v
@@ -96,7 +78,7 @@ func run(log *slog.Logger) error {
 		return errors.New("PLEX_TOKEN is required")
 	}
 	px := plex.New(env("PLEX_URL", "http://127.0.0.1:32400"), token)
-	st, err := store.Open(dbPath())
+	st, err := store.Open(env("DB_PATH", "/data/sepia-server.db"))
 	if err != nil {
 		return err
 	}
